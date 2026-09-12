@@ -1,0 +1,14 @@
+[tools]
+node = "24.19.0"
+python = "3.12"
+uv = "latest"
+
+[tasks.frontend]
+description = "Start the React development server"
+dir = "frontend"
+run = "npm run dev"
+
+[tasks.frontend-build]
+description = "Create a production frontend build"
+dir = "frontend"
+run = "npm run build"
