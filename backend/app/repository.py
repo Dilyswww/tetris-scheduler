@@ -86,6 +86,16 @@ class Repository:
                     entry.is_pinned = is_pinned
             return self._save(db, item.date, schedule_items(items))
 
+    def update(self, item_id: str, replacement: CalendarItem) -> DaySchedule:
+        with self.connection(write=True) as db:
+            current = self._find(db, item_id)
+            if replacement.id != item_id:
+                raise ScheduleConflict("The item ID cannot be changed.")
+            if replacement.date != current.date:
+                raise ScheduleConflict("Move items between days by deleting and recreating them.")
+            items = [replacement if entry.id == item_id else entry for entry in self._read(db, current.date)]
+            return self._save(db, current.date, schedule_items(items))
+
     def delete(self, item_id: str) -> DaySchedule:
         with self.connection(write=True) as db:
             item = self._find(db, item_id)

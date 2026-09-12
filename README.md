@@ -77,8 +77,8 @@ Keep this command reference updated when adding or changing scripts in
 Phase 1 is implemented across the frontend and backend:
 
 - React + TypeScript + Vite calendar and task-list views.
-- Create and delete fixed events and flexible tasks.
-- Pin and unpin items.
+- Create, edit, reschedule, and delete fixed events and flexible tasks.
+- Preserve pinned items while rescheduling (pin controls are not exposed in the current UI).
 - FastAPI and SQLite persistence across browser refreshes.
 - Python first-fit placement that protects fixed/pinned items and respects
   deadlines.

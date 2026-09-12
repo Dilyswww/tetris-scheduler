@@ -32,6 +32,7 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<"calendar" | "tasks">("calendar");
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<CalendarItem | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState("");
   const [now, setNow] = useState(() => new Date());
@@ -75,14 +76,26 @@ export function App() {
     }
   }
 
-  async function togglePin(item: CalendarItem) {
+  async function updateItem(item: CalendarItem) {
     try {
-      const result = await calendarApi.setPin(item.id, !item.isPinned);
+      const previous = items.find((entry) => entry.id === item.id)!;
+      const result = await calendarApi.updateItem(item);
+      const updated = result.items.find((entry) => entry.id === item.id)!;
+      const moved = result.items.filter((entry) => {
+        const old = items.find((candidate) => candidate.id === entry.id);
+        return old && old.startSlot !== entry.startSlot;
+      });
       setItems(result.items);
-      setFeedback(`${item.title} ${item.isPinned ? "unpinned" : `pinned at ${formatSlot(item.startSlot!)}`}.${item.kind === "fixed" ? " Fixed events always stay in place." : ""}`);
+      setFeedback(`Updated ${previous.title}.${moved.length ? ` Rescheduled ${moved.map((entry) => `${entry.title} to ${formatSlot(entry.startSlot!)}`).join(", ")}.` : ` Kept at ${formatSlot(updated.startSlot!)}.`}`);
+      return null;
     } catch (error) {
-      setFeedback(messageFor(error));
+      return messageFor(error);
     }
+  }
+
+  function editItem(item: CalendarItem) {
+    setSelectedId(null);
+    setEditing(item);
   }
 
   async function removeItem(item: CalendarItem) {
@@ -131,7 +144,7 @@ export function App() {
           <div><p className="eyebrow">YOUR ADAPTIVE DAY</p><h1>{dateLabel}</h1></div>
           <div className="top-actions"><button className="today-button" onClick={showCalendar}>Today</button><button ref={addButtonRef} className="add-button" onClick={() => setAdding(true)}>+ Add task</button></div>
         </header>
-        <div className="feedback" role="status" aria-live="polite">{feedback || "Select an item to see its details, pin it, or delete it."}</div>
+        <div className="feedback" role="status" aria-live="polite">{feedback || "Select an item to see its details, edit it, or delete it."}</div>
         <div className="content">
           {view === "calendar" ? <section className="calendar-panel" aria-label="Day calendar" aria-busy={loading}>
             <div className="calendar-header"><span>Time</span><strong>{weekday} <span className="grid-caption">· 30-minute slots</span></strong></div>
@@ -148,10 +161,17 @@ export function App() {
             </div>
           </section> : <section className="task-list-panel" aria-labelledby="task-list-title">
             <div className="list-heading"><h2 id="task-list-title">Your tasks & events</h2><span>{items.length} planned</span></div>
-            {orderedItems.map((item) => <button key={item.id} className="task-row" onClick={() => setSelectedId(item.id)}>
-              <span className={`task-swatch ${item.accent}`} aria-hidden="true" /><span className="task-row-main"><strong>{item.title}</strong><span>{item.kind === "fixed" ? "Fixed event" : `Flexible · due ${formatSlot(item.deadlineSlot)}`}{item.isPinned ? " · Pinned" : ""}</span></span>
-              <span className="task-row-time">{formatSlot(item.startSlot!)}<small>{formatDuration(item.durationSlots)}</small></span>
-            </button>)}
+            {orderedItems.map((item) => <div key={item.id} className="task-row">
+              <button type="button" className="task-row-open" onClick={() => setSelectedId(item.id)} aria-label={`Open details for ${item.title}`}>
+                <span className={`task-swatch ${item.accent}`} aria-hidden="true" />
+                <span className="task-row-main"><strong>{item.title}</strong><span>{item.kind === "fixed" ? "Fixed event" : `Flexible task · due ${formatSlot(item.deadlineSlot)}`}{item.isPinned ? " · Pinned" : ""}</span></span>
+                <span className="task-row-time">{formatSlot(item.startSlot!)}<small>{formatDuration(item.durationSlots)}</small></span>
+              </button>
+              <span className="task-row-actions">
+                <button type="button" className="task-action-button" onClick={() => editItem(item)}>Edit</button>
+                <button type="button" className="task-action-button task-delete-button" onClick={() => removeItem(item)}>Delete</button>
+              </span>
+            </div>)}
             {!loading && !items.length && <div className="empty-state"><p>Your day is a blank canvas.</p><button className="add-button" onClick={() => setAdding(true)}>Add your first task</button><button className="secondary-button" onClick={loadSample}>Load sample day</button></div>}
           </section>}
           <aside className="right-panel">
@@ -165,7 +185,8 @@ export function App() {
           </aside>
         </div>
       </section>
-      {adding && <ItemForm date={date} onAdd={addItem} onClose={() => setAdding(false)} />}
+      {adding && <ItemForm date={date} onSave={addItem} onClose={() => setAdding(false)} />}
+      {editing && <ItemForm date={date} item={editing} onSave={updateItem} onClose={() => setEditing(null)} />}
       {selected && <Dialog title={selected.title} onClose={() => setSelectedId(null)}>
         <p className="detail-kind">{selected.kind === "fixed" ? "Fixed event" : "Flexible task"}{selected.isPinned ? " · Pinned" : ""}</p>
         <dl className="item-details"><div><dt>Time</dt><dd>{formatSlot(selected.startSlot!)} – {formatSlot(selected.startSlot! + selected.durationSlots)}</dd></div><div><dt>Duration</dt><dd>{formatDuration(selected.durationSlots)}</dd></div>
@@ -173,7 +194,7 @@ export function App() {
           {selected.note && <div><dt>Note</dt><dd>{selected.note}</dd></div>}
         </dl>
         <p className="form-hint">{selected.kind === "fixed" ? "Fixed events always stay at their chosen time." : selected.isPinned ? "Pinned tasks keep this exact time when other items are added." : "Flexible tasks can move when a fixed event needs this time."}</p>
-        <div className="dialog-actions"><button className="delete-button" onClick={() => removeItem(selected)}>Delete item</button><button className="secondary-button" aria-pressed={selected.isPinned} onClick={() => togglePin(selected)}>{selected.isPinned ? "Unpin item" : "Pin item"}</button></div>
+        <div className="dialog-actions"><button className="delete-button" onClick={() => removeItem(selected)}>Delete item</button><button className="secondary-button" onClick={() => editItem(selected)}>Edit item</button></div>
       </Dialog>}
     </main>
   );

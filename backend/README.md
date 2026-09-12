@@ -23,6 +23,7 @@ Routes:
 - `GET /api/health`
 - `GET /api/day/{date}`
 - `POST /api/items`
+- `PUT /api/items/{id}`
 - `PATCH /api/items/{id}`
 - `DELETE /api/items/{id}`
 - `POST /api/day/{date}/seed`

@@ -84,3 +84,32 @@ def test_seed_only_populates_an_empty_day(tmp_path):
         assert seeded.status_code == 201
         assert len(seeded.json()["items"]) == 8
         assert client.post(f"/api/day/{DAY}/seed").status_code == 409
+
+
+def test_update_keeps_identity_and_reschedules_atomically(tmp_path):
+    app = create_app(tmp_path / "test.sqlite3")
+    with TestClient(app) as client:
+        client.post("/api/items", json=flexible())
+        client.post("/api/items", json=fixed())
+
+        updated_item = {**flexible(), "title": "Renamed work", "durationSlots": 3, "deadlineSlot": 12, "startSlot": 2}
+        response = client.put("/api/items/work", json=updated_item)
+        assert response.status_code == 200
+        updated = next(item for item in response.json()["items"] if item["id"] == "work")
+        assert updated["title"] == "Renamed work"
+        assert updated["durationSlots"] == 3
+        assert updated["startSlot"] == 2
+
+        conflict = client.put("/api/items/work", json={**fixed("work"), "title": "Conflicting work", "durationSlots": 3})
+        assert conflict.status_code == 409
+        saved = next(item for item in client.get(f"/api/day/{DAY}").json()["items"] if item["id"] == "work")
+        assert saved == updated
+
+
+def test_update_rejects_identity_or_date_changes(tmp_path):
+    app = create_app(tmp_path / "test.sqlite3")
+    with TestClient(app) as client:
+        client.post("/api/items", json=flexible())
+        assert client.put("/api/items/work", json=flexible("different")).status_code == 409
+        tomorrow = date(2026, 9, 13)
+        assert client.put("/api/items/work", json={**flexible(), "date": tomorrow.isoformat()}).status_code == 409
