@@ -62,6 +62,58 @@ class PinUpdate(ApiModel):
     is_pinned: StrictBool
 
 
+class RescheduleRequest(ApiModel):
+    item_id: str = Field(min_length=1, max_length=80)
+    additional_slots: Annotated[int, Field(strict=True, ge=1, le=4)]
+    time_zone: str = "UTC"
+
+
+class MoveOperation(ApiModel):
+    type: Literal["move"]
+    item_id: str = Field(min_length=1, max_length=80)
+    target_start_slot: StartSlot
+
+
+class ExtendOperation(ApiModel):
+    type: Literal["extend"]
+    item_id: str = Field(min_length=1, max_length=80)
+    additional_slots: Annotated[int, Field(strict=True, ge=1, le=4)]
+
+
+Operation = Annotated[MoveOperation | ExtendOperation, Field(discriminator="type")]
+
+
+class PreviewRequest(ApiModel):
+    operation: Operation
+    time_zone: str = Field(min_length=1, max_length=100)
+
+
+class CommitRequest(ApiModel):
+    preview_token: str = Field(min_length=1, max_length=100)
+
+
+class ScheduleChange(ApiModel):
+    item_id: str
+    title: str
+    change_type: Literal["extended", "moved", "deferred", "scheduled", "restored"]
+    from_start_slot: int | None = None
+    to_start_slot: int | None = None
+    from_duration_slots: int | None = None
+    to_duration_slots: int | None = None
+    reason: str
+
+
 class DaySchedule(ApiModel):
     date: LocalDate
     items: list[CalendarItem]
+    changes: list[ScheduleChange] = Field(default_factory=list)
+    can_undo: bool = False
+    solver_status: Literal["optimal", "feasible"] | None = None
+
+
+class SchedulePreview(ApiModel):
+    preview_token: str
+    expires_in_seconds: int
+    operation: Operation
+    earliest_start_slot: int
+    schedule: DaySchedule

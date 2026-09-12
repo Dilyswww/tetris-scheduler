@@ -27,6 +27,35 @@ export type FlexibleTask = ItemBase & {
 
 export type CalendarItem = FixedEvent | FlexibleTask;
 
-export type ScheduleResult =
-  | { ok: true; items: CalendarItem[] }
-  | { ok: false; error: string };
+export type ChangeType = "extended" | "moved" | "deferred" | "scheduled" | "restored";
+
+export type ScheduleChange = {
+  itemId: string;
+  title: string;
+  changeType: ChangeType;
+  fromStartSlot: number | null;
+  toStartSlot: number | null;
+  fromDurationSlots: number | null;
+  toDurationSlots: number | null;
+  reason: string;
+};
+
+export type DaySchedule = {
+  date: string;
+  items: CalendarItem[];
+  changes: ScheduleChange[];
+  canUndo: boolean;
+  solverStatus: "optimal" | "feasible" | null;
+};
+
+export type OptimizerOperation =
+  | { type: "move"; itemId: string; targetStartSlot: number }
+  | { type: "extend"; itemId: string; additionalSlots: number };
+
+export type SchedulePreview = {
+  previewToken: string;
+  expiresInSeconds: number;
+  operation: OptimizerOperation;
+  earliestStartSlot: number;
+  schedule: DaySchedule;
+};

@@ -3,12 +3,12 @@ from contextlib import asynccontextmanager
 from datetime import date
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Query, Request
 from fastapi.responses import JSONResponse
 
-from .models import CalendarItem, DaySchedule, PinUpdate
-from .repository import ItemNotFound, Repository
-from .scheduler import ScheduleConflict
+from .models import CalendarItem, CommitRequest, DaySchedule, PinUpdate, PreviewRequest, RescheduleRequest, SchedulePreview
+from .repository import ItemNotFound, Repository, UndoUnavailable
+from .scheduler import ScheduleConflict, SolverUnavailable
 
 DEFAULT_DB = Path(__file__).resolve().parents[1] / "data" / "tetris.sqlite3"
 
@@ -31,6 +31,14 @@ def create_app(db_path: Path | None = None) -> FastAPI:
     async def not_found(request: Request, exc: ItemNotFound):
         return JSONResponse(status_code=404, content={"detail": str(exc)})
 
+    @app.exception_handler(UndoUnavailable)
+    async def undo_unavailable(request: Request, exc: UndoUnavailable):
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+    @app.exception_handler(SolverUnavailable)
+    async def solver_unavailable(request: Request, exc: SolverUnavailable):
+        return JSONResponse(status_code=503, content={"detail": str(exc)})
+
     @app.get("/api/health")
     def health():
         return {"status": "ok"}
@@ -40,8 +48,8 @@ def create_app(db_path: Path | None = None) -> FastAPI:
         return repository.get_day(day)
 
     @app.post("/api/items", response_model=DaySchedule, status_code=201)
-    def add_item(item: CalendarItem):
-        return repository.add(item)
+    def add_item(item: CalendarItem, time_zone: str = Query(default="UTC", alias="timeZone", min_length=1, max_length=100)):
+        return repository.add(item, time_zone)
 
     @app.patch("/api/items/{item_id}", response_model=DaySchedule)
     def pin_item(item_id: str, update: PinUpdate):
@@ -58,6 +66,22 @@ def create_app(db_path: Path | None = None) -> FastAPI:
     @app.post("/api/day/{day}/seed", response_model=DaySchedule, status_code=201)
     def seed_day(day: date):
         return repository.seed(day)
+
+    @app.post("/api/optimizer/preview", response_model=SchedulePreview)
+    def preview(update: PreviewRequest):
+        return repository.preview(update)
+
+    @app.post("/api/optimizer/commit", response_model=DaySchedule)
+    def commit(update: CommitRequest):
+        return repository.commit(update.preview_token)
+
+    @app.post("/api/reschedule", response_model=DaySchedule, deprecated=True)
+    def reschedule(update: RescheduleRequest):
+        return repository.reschedule(update.item_id, update.additional_slots, update.time_zone)
+
+    @app.post("/api/day/{day}/undo", response_model=DaySchedule)
+    def undo(day: date):
+        return repository.undo(day)
 
     return app
 

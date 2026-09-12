@@ -78,18 +78,21 @@ Phase 1 is implemented across the frontend and backend:
 
 - React + TypeScript + Vite calendar and task-list views.
 - Create, edit, reschedule, and delete fixed events and flexible tasks.
-- Preserve pinned items while rescheduling (pin controls are not exposed in the current UI).
+- Pin/unpin items from their detail dialog and preserve pinned placements.
 - FastAPI and SQLite persistence across browser refreshes.
-- Python first-fit placement that protects fixed/pinned items and respects
-  deadlines.
+- OR-Tools CP-SAT placement that protects fixed/pinned items, respects
+  deadlines, and minimizes disruption.
+- Drag flexible tasks to preview a chosen time, or use the accessible Move task dialog.
+- Preview running-late adjustments from 30 minutes to two hours before Apply,
+  with structured explanations, task deferral, and persistent one-level Undo.
 - Full-day scrolling and live schedule totals.
 
 An empty day can be filled with sample data from the interface. The backend
 creates its SQLite database at `backend/data/tetris.sqlite3` on first start.
 No API keys or external services are required.
 
-Delay handling, movement optimization, deferral, and Undo are still pending.
-Google Calendar and sponsor integrations are optional later work.
+Multi-day navigation and scheduling are still pending. Google Calendar and
+sponsor integrations are optional later work.
 
 ## Project layout
 
@@ -105,3 +108,6 @@ See the [execution plan](doc/execution-plan.md) for the eight-hour build scope
 and the [frontend notes](frontend/README.md) for the source map, scheduler
 limitations, and manual demo checks. Backend details are in
 [backend/README.md](backend/README.md).
+The [optimizer notes](doc/optimizer.md) define the move/extend API, objective,
+time rules, preview/commit contract, and Undo flow. Run a single backend worker:
+preview tokens are temporary and held in that process; calendars and Undo persist.
