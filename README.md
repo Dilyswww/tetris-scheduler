@@ -85,6 +85,8 @@ Phase 1 is implemented across the frontend and backend:
 - Drag flexible tasks to preview a chosen time, or use the accessible Move task dialog.
 - Preview running-late adjustments from 30 minutes to two hours before Apply,
   with structured explanations, task deferral, and persistent one-level Undo.
+- Compare multiple real CP-SAT schedules for a new fixed event or flexible task
+  and apply only the option the user chooses.
 - Full-day scrolling and live schedule totals.
 
 An empty day can be filled with sample data from the interface. The backend
@@ -108,6 +110,6 @@ See the [execution plan](doc/execution-plan.md) for the eight-hour build scope
 and the [frontend notes](frontend/README.md) for the source map, scheduler
 limitations, and manual demo checks. Backend details are in
 [backend/README.md](backend/README.md).
-The [optimizer notes](doc/optimizer.md) define the move/extend API, objective,
-time rules, preview/commit contract, and Undo flow. Run a single backend worker:
+The [optimizer notes](doc/optimizer.md) define the move/extend and multi-option
+APIs, objective, time rules, preview/commit contract, and Undo flow. Run a single backend worker:
 preview tokens are temporary and held in that process; calendars and Undo persist.

@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from ortools.sat.python import cp_model
@@ -31,6 +31,8 @@ def schedule_items(
     source: Sequence[CalendarItem],
     *,
     locked_ids: frozenset[str] = frozenset(),
+    required_ids: frozenset[str] = frozenset(),
+    forbidden_starts: Mapping[str, frozenset[int]] | None = None,
     earliest_start_slot: int = 0,
     time_limit_seconds: float = 0.5,
 ) -> SolverResult:
@@ -44,8 +46,11 @@ def schedule_items(
         raise ScheduleConflict("Each item must have a unique ID.")
     if len({item.date for item in items}) > 1:
         raise ScheduleConflict("Schedule one day at a time.")
-    if locked_ids - {item.id for item in items}:
+    item_ids = {item.id for item in items}
+    if (locked_ids | required_ids) - item_ids:
         raise ScheduleConflict("The selected item no longer exists.")
+    if locked_ids & required_ids:
+        raise ScheduleConflict("An item cannot be both locked and independently required.")
     if not 0 <= earliest_start_slot <= SLOTS_PER_DAY:
         raise ScheduleConflict("The earliest start must be within this day.")
 
@@ -75,7 +80,10 @@ def schedule_items(
             candidate_starts = [item.start_slot]
         else:
             assert isinstance(item, FlexibleTask)
-            candidate_starts = list(range(earliest_start_slot, item.deadline_slot - item.duration_slots + 1))
+            excluded = (forbidden_starts or {}).get(item.id, frozenset())
+            candidate_starts = [start for start in range(
+                earliest_start_slot, item.deadline_slot - item.duration_slots + 1,
+            ) if start not in excluded]
 
         candidates: list[tuple[int, cp_model.IntVar]] = []
         for start in candidate_starts:
@@ -93,7 +101,7 @@ def schedule_items(
 
         placement_vars[item.id] = candidates
         decisions = [variable for _, variable in candidates]
-        if isinstance(item, FlexibleTask) and not protected:
+        if isinstance(item, FlexibleTask) and not protected and item.id not in required_ids:
             deferred = model.new_bool_var(f"defer_{index}")
             deferred_vars[item.id] = deferred
             decisions.append(deferred)

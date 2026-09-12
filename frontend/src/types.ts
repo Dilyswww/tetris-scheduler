@@ -27,7 +27,7 @@ export type FlexibleTask = ItemBase & {
 
 export type CalendarItem = FixedEvent | FlexibleTask;
 
-export type ChangeType = "extended" | "moved" | "deferred" | "scheduled" | "restored";
+export type ChangeType = "added" | "extended" | "moved" | "deferred" | "scheduled" | "restored";
 
 export type ScheduleChange = {
   itemId: string;
@@ -58,4 +58,39 @@ export type SchedulePreview = {
   operation: OptimizerOperation;
   earliestStartSlot: number;
   schedule: DaySchedule;
+};
+
+type ProposalDraftBase = {
+  id: string;
+  title: string;
+  date: string;
+  durationSlots: number;
+  accent: Accent;
+  note: string;
+};
+
+export type ProposalItemDraft = ProposalDraftBase & (
+  | { kind: "fixed" }
+  | { kind: "flexible"; deadlineSlot: number }
+);
+
+export type ProposalMetrics = {
+  movedTaskCount: number;
+  totalShiftSlots: number;
+  deferredTaskCount: number;
+};
+
+export type ProposalAlternative = {
+  id: string;
+  label: string;
+  startSlot: number;
+  schedule: DaySchedule;
+  metrics: ProposalMetrics;
+};
+
+export type ProposalSet = {
+  proposalSetId: string;
+  expiresInSeconds: number;
+  date: string;
+  alternatives: ProposalAlternative[];
 };

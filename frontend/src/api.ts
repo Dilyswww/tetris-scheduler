@@ -1,4 +1,4 @@
-import type { CalendarItem, DaySchedule, OptimizerOperation, SchedulePreview } from "./types.ts";
+import type { CalendarItem, DaySchedule, OptimizerOperation, ProposalItemDraft, ProposalSet, SchedulePreview } from "./types.ts";
 
 export class ApiError extends Error {}
 
@@ -31,5 +31,12 @@ export const calendarApi = {
     method: "POST", signal, body: JSON.stringify({ operation, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
   }),
   commit: (previewToken: string) => request("/api/optimizer/commit", { method: "POST", body: JSON.stringify({ previewToken }) }),
+  proposals: (item: ProposalItemDraft, candidateStartSlots?: number[]) => request<ProposalSet>("/api/optimizer/proposals", {
+    method: "POST",
+    body: JSON.stringify({ item, candidateStartSlots, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+  }),
+  acceptProposal: (proposalSetId: string, alternativeId: string) => request(`/api/optimizer/proposals/${encodeURIComponent(proposalSetId)}/accept`, {
+    method: "POST", body: JSON.stringify({ alternativeId }),
+  }),
   undo: (date: string) => request(`/api/day/${date}/undo`, { method: "POST" }),
 };

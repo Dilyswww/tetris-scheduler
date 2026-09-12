@@ -31,10 +31,12 @@ Routes:
 - `POST /api/day/{date}/seed`
 - `POST /api/optimizer/preview` — read-only move/extend proposal
 - `POST /api/optimizer/commit` — save an unchanged, unexpired proposal token
+- `POST /api/optimizer/proposals` — generate real CP-SAT alternatives for a new fixed event or flexible task
+- `POST /api/optimizer/proposals/{id}/accept` — save one exact alternative and invalidate the set
 - `POST /api/reschedule` — deprecated immediate extension compatibility route
 - `POST /api/day/{date}/undo`
 
-Use one API worker for the hackathon: preview tokens live in process memory for
+Use one API worker for the hackathon: preview tokens and proposal sets live in process memory for
 up to 120 seconds. Calendars, revision counters, and Undo snapshots live in SQLite.
 The [optimizer interface](../doc/optimizer.md#http-interface) documents payloads,
 time-zone handling, conflict behavior, and stale-preview rejection.

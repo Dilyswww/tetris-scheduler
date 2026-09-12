@@ -100,7 +100,7 @@ def test_revision_rejects_preview_even_after_undo_restores_identical_items(clien
     assert commit(client, first).status_code == 409
 
 
-def test_elapsed_gaps_unavailable_and_started_work_preserved(client, frozen_clock):
+def test_elapsed_gaps_unavailable_but_selected_past_task_can_move_forward(client, frozen_clock):
     client.post("/api/items", json=flexible("completed", start_slot=0))
     client.post("/api/items", json={**flexible("current", start_slot=4), "deadlineSlot": 12})
     client.post("/api/items", json={**flexible("next", start_slot=6), "deadlineSlot": 8})
@@ -111,7 +111,11 @@ def test_elapsed_gaps_unavailable_and_started_work_preserved(client, frozen_cloc
     assert placed["completed"]["startSlot"] == 0
     assert placed["current"]["startSlot"] == 4
     assert placed["next"]["startSlot"] is None  # The old 9–10 AM gap is elapsed.
-    assert preview(client, move("completed", 10)).status_code == 409
+    moved = preview(client, move("completed", 8))
+    assert moved.status_code == 200
+    moved_items = {item["id"]: item for item in moved.json()["schedule"]["items"]}
+    assert moved_items["completed"]["startSlot"] == 8
+    assert moved_items["current"]["startSlot"] == 4  # Other elapsed work remains locked.
     assert preview(client, move("next", 3)).status_code == 409
 
 
