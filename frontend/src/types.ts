@@ -57,6 +57,7 @@ export type SchedulePreview = {
   expiresInSeconds: number;
   operation: OptimizerOperation;
   earliestStartSlot: number;
+  penalties: PenaltyWeights;
   schedule: DaySchedule;
 };
 
@@ -93,4 +94,10 @@ export type ProposalSet = {
   expiresInSeconds: number;
   date: string;
   alternatives: ProposalAlternative[];
+};
+
+export type PenaltyWeights = {
+  movedTask: number;
+  displacementSlot: number;
+  largestDisplacementSlot: number;
 };

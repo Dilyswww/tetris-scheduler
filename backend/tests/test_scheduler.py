@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from app.models import FixedEvent, FlexibleTask
+from app.models import FixedEvent, FlexibleTask, PenaltyWeights
 from app.scheduler import ScheduleConflict, schedule_items
 
 DAY = date(2026, 9, 12)
@@ -52,14 +52,30 @@ def test_pending_tasks_use_deadline_order():
     assert by_id(output, "later").start_slot == 2
 
 
-def test_minimizes_moved_tasks_before_total_displacement():
+def test_prefers_two_shorter_moves_over_one_large_disruption():
     output = schedule_items([
         fixed("extended", 0, 4),
         task("displaced", 2, start=2),
         task("unchanged", 2, start=4),
     ])
+    assert by_id(output, "unchanged").start_slot == 6
+    assert by_id(output, "displaced").start_slot == 4
+
+
+def test_high_move_count_penalty_can_prefer_one_larger_move():
+    output = schedule_items([
+        fixed("extended", 0, 4),
+        task("displaced", 2, start=2),
+        task("unchanged", 2, start=4),
+    ], penalties=PenaltyWeights(moved_task=20))
     assert by_id(output, "unchanged").start_slot == 4
     assert by_id(output, "displaced").start_slot == 6
+
+
+def test_large_movement_penalties_do_not_cause_unnecessary_deferral():
+    result = schedule_items([fixed("busy", 0, 31), task("work", 1, start=0)],
+        penalties=PenaltyWeights(moved_task=1000, displacement_slot=1000, largest_displacement_slot=1000))
+    assert by_id(result, "work").start_slot == 31
 
 
 def test_minimizes_displacement_and_is_deterministic():

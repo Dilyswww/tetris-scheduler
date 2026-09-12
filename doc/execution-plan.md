@@ -92,8 +92,9 @@ Scheduling rules:
 3. Lock a dragged task at the chosen start, or extend a selected item's duration
    while keeping its start unchanged.
 4. Require other placements to use unelapsed time and finish by their deadlines.
-5. Use CP-SAT to minimize deferred tasks, then moved tasks, then total absolute
-   displacement, with scheduling preferences as the final tie-breaker.
+5. Use CP-SAT to minimize deferred tasks, then a weighted movement score combining
+   move count, total displacement, and largest individual displacement. Use
+   different default weights for move/extend, with scheduling preferences as ties.
 6. Return proposed placements and explanations without changing the saved day.
 7. On commit, validate the revision and time boundary, save the pre-change
    schedule as the single Undo snapshot, and persist the exact proposal atomically.

@@ -1,4 +1,4 @@
-import type { CalendarItem, DaySchedule, OptimizerOperation, ProposalItemDraft, ProposalSet, SchedulePreview } from "./types.ts";
+import type { CalendarItem, DaySchedule, OptimizerOperation, PenaltyWeights, ProposalItemDraft, ProposalSet, SchedulePreview } from "./types.ts";
 
 export class ApiError extends Error {}
 
@@ -27,8 +27,8 @@ export const calendarApi = {
   setPin: (id: string, isPinned: boolean) => request(`/api/items/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ isPinned }) }),
   deleteItem: (id: string) => request(`/api/items/${encodeURIComponent(id)}`, { method: "DELETE" }),
   seedDay: (date: string) => request(`/api/day/${date}/seed`, { method: "POST" }),
-  preview: (operation: OptimizerOperation, signal?: AbortSignal) => request<SchedulePreview>("/api/optimizer/preview", {
-    method: "POST", signal, body: JSON.stringify({ operation, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+  preview: (operation: OptimizerOperation, signal?: AbortSignal, penalties?: Partial<PenaltyWeights>) => request<SchedulePreview>("/api/optimizer/preview", {
+    method: "POST", signal, body: JSON.stringify({ operation, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, penalties }),
   }),
   commit: (previewToken: string) => request("/api/optimizer/commit", { method: "POST", body: JSON.stringify({ previewToken }) }),
   proposals: (item: ProposalItemDraft, candidateStartSlots?: number[]) => request<ProposalSet>("/api/optimizer/proposals", {

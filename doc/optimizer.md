@@ -22,24 +22,54 @@ versions of the same placement preference. A drag's chosen start is mandatory;
 a penalty must never let the solver ignore the drop. An extension changes how
 much time is available while preserving its start.
 
-Both use the same objective for **collateral changes**, in strict priority order:
+Both use a weighted score for **collateral changes**. Movement count no longer
+has strict priority over movement distance. First minimize deferred tasks, then
+minimize this score:
 
-1. Minimize the number of deferred flexible tasks.
-2. Minimize the number of other previously scheduled tasks whose start changes.
-3. Minimize their total absolute start-time displacement, measured in slots.
-4. Prefer earlier placements; for deferral ties, prefer preserving tasks with
-   earlier deadlines and older positions in the day's item list.
+```text
+movementScore = movedTask × movedTaskCount
+              + displacementSlot × totalDisplacementSlots
+              + largestDisplacementSlot × largestIndividualDisplacementSlots
+```
+
+Displacement is absolute start-time distance, in 30-minute slots. The largest
+individual displacement is zero if no previously scheduled task moves. The
+default weights differ by operation:
+
+| Weight | Move / drag | Extend / running late |
+| --- | ---: | ---: |
+| `movedTask` | 1 | 8 |
+| `displacementSlot` | 2 | 2 |
+| `largestDisplacementSlot` | 4 | 0 |
+
+Dragging favors small individual shifts; extending places more emphasis on
+leaving other tasks untouched. These are tradeoffs, not guarantees of a minimum
+move count. Ordinary whole-day placement and adding items use the move defaults.
+For equal scores, prefer earlier placements; deferral tie costs prefer keeping
+tasks with earlier deadlines and older positions in the day's item list.
+
+### Regression: reorder 30 / 90 / 60 minutes
+
+Originally A occupies minutes 0–30, B 30–120, and C 120–180. Drag A to 150–180:
+
+- Keeping B unchanged and moving C to 180–240 costs `1×1 + 2×2 + 4×2 = 13`.
+- Moving B to 0–90 and C to 90–150 costs `1×2 + 2×2 + 4×1 = 10`.
+
+The compact B → C → A schedule wins, even though two other tasks move. The
+requested move of A contributes nothing to these scores. There is no special
+block boundary penalty: compactness is a consequence of smaller individual moves
+in this example, not a general guarantee.
 
 The requested move itself is excluded from collateral movement cost by locking
 the target at its requested placement before optimization. Deferred tasks count
-in tier 1; they have no displacement. Newly placed tasks have no previous start
+at the highest priority; they have no displacement. Newly placed tasks have no previous start
 and therefore no movement penalty. Task priority, forward-only shifting, order
 preservation, and schedule compression are not separate objectives in this MVP.
 
 Example before 8 AM: A occupies slots 0–2 and B occupies 2–4. Drag A to slot 2:
 B can move into the vacated 0–2 gap. Extend A by two slots instead: A occupies
-0–4, so B must go elsewhere, such as 4–6. The objective is shared; the feasible
-placements differ.
+0–4, so B must go elsewhere, such as 4–6. Both the required placements and the
+default penalty weights differ between these operations.
 
 ## Time and protection rules
 
@@ -100,7 +130,12 @@ Drag / choose a time:
     "itemId": "write-report",
     "targetStartSlot": 12
   },
-  "timeZone": "America/New_York"
+  "timeZone": "America/New_York",
+  "penalties": {
+    "movedTask": 1,
+    "displacementSlot": 2,
+    "largestDisplacementSlot": 4
+  }
 }
 ```
 
@@ -124,6 +159,13 @@ Running late:
 | `targetStartSlot` | Required only for move; integer 0–31; full duration must fit by the deadline |
 | `additionalSlots` | Required only for extend; integer 1–4 |
 | `timeZone` | Required IANA time-zone identifier |
+| `penalties` | Optional object overriding the operation's default weights; omitted fields keep their operation-specific defaults |
+
+Each penalty is an integer from 0 to 1000; zero disables that movement term.
+Negative, fractional, Boolean, and unknown fields are rejected. The response
+echoes the complete resolved weights. Weights do not relax fixed/pinned/started
+placements, deadlines, overlap restrictions, or the priority of avoiding deferral.
+Clients can tune them through the API; the UI currently uses the defaults.
 
 Successful response, using TypeScript notation to show the exact shape:
 
@@ -135,6 +177,11 @@ type SchedulePreview = {
     | { type: "move"; itemId: string; targetStartSlot: number }
     | { type: "extend"; itemId: string; additionalSlots: number };
   earliestStartSlot: number; // 0–32
+  penalties: {
+    movedTask: number;
+    displacementSlot: number;
+    largestDisplacementSlot: number;
+  };
   schedule: DaySchedule;
 };
 
@@ -276,6 +323,7 @@ schedule_items(
     *,
     locked_ids: frozenset[str] = frozenset(),
     earliest_start_slot: int = 0,
+    penalties: PenaltyWeights | None = None,
     time_limit_seconds: float = 0.5,
 ) -> SolverResult
 ```
@@ -292,10 +340,14 @@ placement or deferral is selected per item, and at most one selected interval
 covers any slot. Fixed, pinned, and explicitly locked items have only their
 required start and cannot defer. All scheduled tasks finish by their deadline.
 
-One integer objective encodes the four priority tiers. Each weight exceeds the
-maximum total cost of all lower tiers, so one fewer deferred task always beats
-any movement improvements, and one fewer moved task always beats any displacement
-improvements. Fixed placements contribute only constant costs.
+One integer objective encodes deferral count, the weighted movement score, and
+final tie costs. An `add_max_equality` constraint computes the largest selected
+individual displacement; deferred tasks contribute zero. The movement score is
+scaled above the maximum possible total tie cost. The deferral weight is then
+computed above the maximum possible movement score plus tie cost, including the
+supplied penalty weights. Thus one fewer deferred task still dominates movement,
+but one fewer moved task does not automatically beat smaller distances. Fixed
+placements contribute only constant costs.
 
 Saved placements are solution hints. The solver uses one worker, a fixed seed,
 and a 500 ms limit. `optimal` proves the objective minimum; `feasible` means a

@@ -18,6 +18,7 @@ from .models import (
     ExtendOperation,
     MoveOperation,
     Operation,
+    PenaltyWeights,
     PreviewRequest,
     ProposalAlternative,
     ProposalMetrics,
@@ -375,10 +376,16 @@ class Repository:
         if target.start_slot + target.duration_slots > latest_end:
             raise ScheduleConflict(f'“{target.title}” would finish after {format_slot(latest_end)}.')
         locked.add(target.id)
-        result = schedule_items(proposed, locked_ids=frozenset(locked), earliest_start_slot=cutoff)
+        penalties = (
+            PenaltyWeights(moved_task=8, displacement_slot=2, largest_displacement_slot=0)
+            if isinstance(operation, ExtendOperation) else PenaltyWeights()
+        )
+        if request.penalties is not None:
+            penalties = penalties.model_copy(update=request.penalties.model_dump(exclude_unset=True))
+        result = schedule_items(proposed, locked_ids=frozenset(locked), earliest_start_slot=cutoff, penalties=penalties)
         preview = SchedulePreview(
             preview_token=secrets.token_urlsafe(32), expires_in_seconds=120,
-            operation=operation, earliest_start_slot=cutoff,
+            operation=operation, earliest_start_slot=cutoff, penalties=penalties,
             schedule=DaySchedule(date=day, items=result.items,
                 changes=self._reschedule_changes(before, result, target.id, operation),
                 can_undo=can_undo, solver_status=result.status),

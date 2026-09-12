@@ -35,8 +35,10 @@ button to load sample data. Calendar changes persist in SQLite across refreshes.
 - `src/ProposedChanges.tsx`: proposed placements and explanations.
 - `src/ScheduleProposalPanel.tsx`: compares, previews, and accepts new-item options.
 
-The Python CP-SAT scheduler is authoritative. It minimizes deferral, the number
-of moved tasks, and total displacement in that order. It does not split tasks
+The Python CP-SAT scheduler is authoritative. It minimizes deferral, then a
+weighted score for moved-task count, total displacement, and largest individual
+displacement. Dragging and running late use different default weights; see
+[optimizer.md](../doc/optimizer.md). It does not split tasks
 or schedule work across multiple days.
 
 ## Manual demo check
