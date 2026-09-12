@@ -92,10 +92,60 @@ class CommitRequest(ApiModel):
     preview_token: str = Field(min_length=1, max_length=100)
 
 
+class FixedEventDraft(ApiModel):
+    kind: Literal["fixed"]
+    id: str = Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9_-]+$")
+    title: str = Field(min_length=1, max_length=120)
+    date: LocalDate
+    duration_slots: SlotCount
+    accent: Literal["purple", "orange", "blue", "green"] = "blue"
+    note: str = Field(default="", max_length=240)
+
+
+class FlexibleTaskDraft(ApiModel):
+    kind: Literal["flexible"]
+    id: str = Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9_-]+$")
+    title: str = Field(min_length=1, max_length=120)
+    date: LocalDate
+    duration_slots: SlotCount
+    deadline_slot: SlotCount
+    accent: Literal["purple", "orange", "blue", "green"] = "purple"
+    note: str = Field(default="", max_length=240)
+
+    @model_validator(mode="after")
+    def can_fit_before_deadline(self) -> Self:
+        if self.duration_slots > self.deadline_slot:
+            raise ValueError("The task duration must fit before its deadline.")
+        return self
+
+
+ProposalItemDraft = Annotated[FixedEventDraft | FlexibleTaskDraft, Field(discriminator="kind")]
+
+
+class ProposalOptionsRequest(ApiModel):
+    item: ProposalItemDraft
+    candidate_start_slots: list[StartSlot] | None = Field(default=None, min_length=1, max_length=4)
+    time_zone: str = Field(min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def valid_candidates(self) -> Self:
+        if isinstance(self.item, FixedEventDraft) and self.candidate_start_slots is None:
+            raise ValueError("Choose a start time for a fixed event.")
+        if isinstance(self.item, FlexibleTaskDraft) and self.candidate_start_slots is not None:
+            raise ValueError("Flexible task alternatives are selected by the optimizer.")
+        if self.candidate_start_slots is not None and len(set(self.candidate_start_slots)) != len(self.candidate_start_slots):
+            raise ValueError("Choose different candidate start times.")
+        return self
+
+
+class AcceptProposalRequest(ApiModel):
+    alternative_id: str = Field(min_length=1, max_length=100)
+
+
 class ScheduleChange(ApiModel):
     item_id: str
     title: str
-    change_type: Literal["extended", "moved", "deferred", "scheduled", "restored"]
+    change_type: Literal["added", "extended", "moved", "deferred", "scheduled", "restored"]
     from_start_slot: int | None = None
     to_start_slot: int | None = None
     from_duration_slots: int | None = None
@@ -117,3 +167,24 @@ class SchedulePreview(ApiModel):
     operation: Operation
     earliest_start_slot: int
     schedule: DaySchedule
+
+
+class ProposalMetrics(ApiModel):
+    moved_task_count: int
+    total_shift_slots: int
+    deferred_task_count: int
+
+
+class ProposalAlternative(ApiModel):
+    id: str
+    label: str
+    start_slot: StartSlot
+    schedule: DaySchedule
+    metrics: ProposalMetrics
+
+
+class ProposalSet(ApiModel):
+    proposal_set_id: str
+    expires_in_seconds: int
+    date: LocalDate
+    alternatives: list[ProposalAlternative]

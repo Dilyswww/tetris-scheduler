@@ -6,7 +6,18 @@ from pathlib import Path
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import JSONResponse
 
-from .models import CalendarItem, CommitRequest, DaySchedule, PinUpdate, PreviewRequest, RescheduleRequest, SchedulePreview
+from .models import (
+    AcceptProposalRequest,
+    CalendarItem,
+    CommitRequest,
+    DaySchedule,
+    PinUpdate,
+    PreviewRequest,
+    ProposalOptionsRequest,
+    ProposalSet,
+    RescheduleRequest,
+    SchedulePreview,
+)
 from .repository import ItemNotFound, Repository, UndoUnavailable
 from .scheduler import ScheduleConflict, SolverUnavailable
 
@@ -74,6 +85,14 @@ def create_app(db_path: Path | None = None) -> FastAPI:
     @app.post("/api/optimizer/commit", response_model=DaySchedule)
     def commit(update: CommitRequest):
         return repository.commit(update.preview_token)
+
+    @app.post("/api/optimizer/proposals", response_model=ProposalSet)
+    def proposals(update: ProposalOptionsRequest):
+        return repository.proposals(update)
+
+    @app.post("/api/optimizer/proposals/{proposal_set_id}/accept", response_model=DaySchedule)
+    def accept_proposal(proposal_set_id: str, update: AcceptProposalRequest):
+        return repository.accept_proposal(proposal_set_id, update.alternative_id)
 
     @app.post("/api/reschedule", response_model=DaySchedule, deprecated=True)
     def reschedule(update: RescheduleRequest):

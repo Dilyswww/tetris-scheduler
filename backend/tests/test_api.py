@@ -115,6 +115,22 @@ def test_update_rejects_identity_or_date_changes(tmp_path):
         assert client.put("/api/items/work", json={**flexible(), "date": tomorrow.isoformat()}).status_code == 409
 
 
+def test_converting_fixed_event_to_flexible_preserves_its_start(tmp_path):
+    app = create_app(tmp_path / "test.sqlite3")
+    with TestClient(app) as client:
+        client.post("/api/items", json=fixed(start_slot=12))
+        converted = {
+            **flexible("meeting", start_slot=12),
+            "title": "Meeting is now flexible",
+            "deadlineSlot": 20,
+        }
+        response = client.put("/api/items/meeting", json=converted)
+        assert response.status_code == 200
+        item = response.json()["items"][0]
+        assert item["kind"] == "flexible"
+        assert item["startSlot"] == 12
+
+
 def test_edit_after_running_late_invalidates_undo_only_on_success(tmp_path):
     with TestClient(create_app(tmp_path / "test.sqlite3")) as client:
         assert client.post("/api/items", json=fixed()).status_code == 201

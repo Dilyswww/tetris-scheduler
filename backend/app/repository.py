@@ -13,12 +13,19 @@ from .models import (
     CalendarItem,
     DaySchedule,
     FlexibleTask,
+    FlexibleTaskDraft,
+    FixedEventDraft,
     ExtendOperation,
     MoveOperation,
     Operation,
     PreviewRequest,
+    ProposalAlternative,
+    ProposalMetrics,
+    ProposalOptionsRequest,
+    ProposalSet,
     SchedulePreview,
     ScheduleChange,
+    FixedEvent,
     item_adapter,
 )
 from .scheduler import ScheduleConflict, SolverResult, format_slot, schedule_items
@@ -42,6 +49,7 @@ class Repository:
         self.path = path
         # Ephemeral proposals are bounded and never write to SQLite.
         self._previews: OrderedDict[str, tuple[float, int, str, SchedulePreview]] = OrderedDict()
+        self._proposal_sets: OrderedDict[str, tuple[float, int, str, int, ProposalSet]] = OrderedDict()
         self._preview_lock = Lock()
 
     def initialize(self) -> None:
@@ -199,6 +207,56 @@ class Repository:
             ))
         return changes
 
+    @classmethod
+    def _addition_changes(
+        cls, before: list[CalendarItem], result: SolverResult, added: CalendarItem,
+    ) -> list[ScheduleChange]:
+        assert added.start_slot is not None
+        new_by_id = {item.id: item for item in result.items}
+        changes = [ScheduleChange(
+            item_id=added.id, title=added.title, change_type="added",
+            from_start_slot=None, to_start_slot=added.start_slot,
+            from_duration_slots=None, to_duration_slots=added.duration_slots,
+            reason=f"Added at {format_slot(added.start_slot)} in this proposal.",
+        )]
+        for old in before:
+            new = new_by_id[old.id]
+            if old.start_slot == new.start_slot:
+                continue
+            if new.start_slot is None:
+                change_type = "deferred"
+                reason = f"Deferred to make room for {added.title} while respecting its deadline."
+            elif old.start_slot is None:
+                change_type = "scheduled"
+                reason = f"A valid gap became available at {format_slot(new.start_slot)}."
+            else:
+                change_type = "moved"
+                reason = f"Moved to make room for {added.title} while minimizing disruption."
+            changes.append(ScheduleChange(
+                item_id=old.id, title=old.title, change_type=change_type,
+                from_start_slot=old.start_slot, to_start_slot=new.start_slot,
+                from_duration_slots=old.duration_slots, to_duration_slots=new.duration_slots,
+                reason=reason,
+            ))
+        return changes
+
+    @staticmethod
+    def _proposal_metrics(before: list[CalendarItem], result: SolverResult) -> ProposalMetrics:
+        old_by_id = {item.id: item for item in before}
+        moved = 0
+        shift = 0
+        deferred = 0
+        for item in result.items:
+            old = old_by_id.get(item.id)
+            if old is None:
+                continue
+            if item.start_slot is None and old.start_slot is not None:
+                deferred += 1
+            elif old.start_slot is not None and item.start_slot is not None and old.start_slot != item.start_slot:
+                moved += 1
+                shift += abs(item.start_slot - old.start_slot)
+        return ProposalMetrics(moved_task_count=moved, total_shift_slots=shift, deferred_task_count=deferred)
+
     def get_day(self, day: date) -> DaySchedule:
         with self.connection() as db:
             return DaySchedule(date=day, items=self._read(db, day), can_undo=self._has_snapshot(db, day))
@@ -295,17 +353,17 @@ class Repository:
         cutoff = self._cutoff(day, request.time_zone)
         proposed = [item.model_copy(deep=True) for item in before]
         target = self._find(proposed, operation.item_id)
-        # There is no completion tracking yet: preserve all work that has started.
+        # There is no completion tracking yet: preserve elapsed work unless the
+        # user explicitly moves that flexible task to a future slot.
         locked = {item.id for item in before if item.start_slot is not None and item.start_slot < cutoff}
         if isinstance(operation, MoveOperation):
             if not isinstance(target, FlexibleTask) or target.is_pinned:
                 raise ScheduleConflict("Only unpinned flexible tasks can be dragged.")
-            if target.id in locked:
-                raise ScheduleConflict("A task that has already started cannot be dragged.")
             if target.start_slot == operation.target_start_slot:
                 raise ScheduleConflict("This task is already at that time. Choose a different slot.")
             if operation.target_start_slot < cutoff:
                 raise ScheduleConflict("Choose a time that has not elapsed.")
+            locked.discard(target.id)
             target.start_slot = operation.target_start_slot
         else:
             if target.start_slot is None:
@@ -350,6 +408,125 @@ class Repository:
                                changes=preview.schedule.changes, solver_status=preview.schedule.solver_status)
         with self._preview_lock:
             self._previews.pop(token, None)
+        return saved
+
+    def proposals(self, request: ProposalOptionsRequest) -> ProposalSet:
+        draft = request.item
+        with self.connection() as db:
+            db.execute("BEGIN")
+            before = self._read(db, draft.date)
+            revision = self._revision(db, draft.date)
+            can_undo = self._has_snapshot(db, draft.date)
+        if any(item.id == draft.id for item in before):
+            raise ScheduleConflict("An item with this ID already exists. Reload your calendar.")
+        cutoff = self._cutoff(draft.date, request.time_zone)
+        locked = frozenset(item.id for item in before if item.start_slot is not None and item.start_slot < cutoff)
+        solved: list[tuple[SolverResult, CalendarItem]] = []
+        if isinstance(draft, FixedEventDraft):
+            for start in request.candidate_start_slots or []:
+                if start < cutoff or start + draft.duration_slots > 32:
+                    continue
+                added = FixedEvent(
+                    id=draft.id, title=draft.title, date=draft.date, kind="fixed",
+                    start_slot=start, duration_slots=draft.duration_slots,
+                    is_pinned=False, accent=draft.accent, note=draft.note,
+                )
+                try:
+                    result = schedule_items([*before, added], locked_ids=locked, earliest_start_slot=cutoff)
+                except ScheduleConflict:
+                    continue
+                solved.append((result, added))
+        else:
+            assert isinstance(draft, FlexibleTaskDraft)
+            added = FlexibleTask(
+                id=draft.id, title=draft.title, date=draft.date, kind="flexible",
+                start_slot=None, duration_slots=draft.duration_slots,
+                deadline_slot=draft.deadline_slot, is_pinned=False,
+                accent=draft.accent, note=draft.note,
+            )
+            try:
+                first = schedule_items(
+                    [*before, added], locked_ids=locked,
+                    required_ids=frozenset({added.id}), earliest_start_slot=cutoff,
+                )
+            except ScheduleConflict:
+                first = None
+            if first is not None:
+                first_added = next(item for item in first.items if item.id == added.id)
+                assert first_added.start_slot is not None
+                solved.append((first, first_added))
+                try:
+                    second = schedule_items(
+                        [*before, added], locked_ids=locked,
+                        required_ids=frozenset({added.id}),
+                        forbidden_starts={added.id: frozenset({first_added.start_slot})},
+                        earliest_start_slot=cutoff,
+                    )
+                except ScheduleConflict:
+                    second = None
+                if second is not None:
+                    second_added = next(item for item in second.items if item.id == added.id)
+                    solved.append((second, second_added))
+
+        alternatives: list[ProposalAlternative] = []
+        for result, added in solved:
+            assert added.start_slot is not None
+            metrics = self._proposal_metrics(before, result)
+            changes = self._addition_changes(before, result, added)
+            alternatives.append(ProposalAlternative(
+                id=secrets.token_urlsafe(12), label="Alternative",
+                start_slot=added.start_slot, metrics=metrics,
+                schedule=DaySchedule(
+                    date=draft.date, items=result.items, changes=changes,
+                    can_undo=can_undo, solver_status=result.status,
+                ),
+            ))
+        if not alternatives:
+            raise ScheduleConflict("No schedule option can place this item without moving protected items.")
+        alternatives.sort(key=lambda option: (
+            option.metrics.deferred_task_count,
+            option.metrics.moved_task_count,
+            option.metrics.total_shift_slots,
+            option.start_slot,
+        ))
+        for index, alternative in enumerate(alternatives):
+            alternative.label = "Fewest changes" if index == 0 else f"Alternative at {format_slot(alternative.start_slot)}"
+        proposal_set = ProposalSet(
+            proposal_set_id=secrets.token_urlsafe(24), expires_in_seconds=120,
+            date=draft.date, alternatives=alternatives,
+        )
+        with self._preview_lock:
+            self._proposal_sets[proposal_set.proposal_set_id] = (
+                time.monotonic() + 120, revision, request.time_zone, cutoff, proposal_set,
+            )
+            while len(self._proposal_sets) > 256:
+                self._proposal_sets.popitem(last=False)
+        return proposal_set
+
+    def accept_proposal(self, proposal_set_id: str, alternative_id: str) -> DaySchedule:
+        with self._preview_lock:
+            cached = self._proposal_sets.get(proposal_set_id)
+        if cached is None or cached[0] <= time.monotonic():
+            raise ScheduleConflict("These schedule options expired. Generate new options.")
+        expires, revision, time_zone, cutoff, proposal_set = cached
+        alternative = next((item for item in proposal_set.alternatives if item.id == alternative_id), None)
+        if alternative is None:
+            raise ScheduleConflict("Choose an option from this proposal set.")
+        with self.connection(write=True) as db:
+            if expires <= time.monotonic():
+                raise ScheduleConflict("These schedule options expired. Generate new options.")
+            if self._revision(db, proposal_set.date) != revision:
+                raise ScheduleConflict("Your calendar changed. Reload it and generate new options.")
+            if self._cutoff(proposal_set.date, time_zone) != cutoff:
+                raise ScheduleConflict("Time has advanced. Generate new options again.")
+            self._store_snapshot(db, proposal_set.date, self._read(db, proposal_set.date))
+            saved = self._save(
+                db, proposal_set.date, alternative.schedule.items,
+                changes=alternative.schedule.changes,
+                solver_status=alternative.schedule.solver_status,
+            )
+        with self._preview_lock:
+            self._proposal_sets.pop(proposal_set_id, None)
         return saved
 
     def reschedule(self, item_id: str, additional_slots: int, time_zone: str = "UTC") -> DaySchedule:

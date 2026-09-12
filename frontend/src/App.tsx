@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, DragEvent } from "react";
-import type { CalendarItem, DaySchedule, ScheduleChange } from "./types.ts";
+import type { CalendarItem, DaySchedule, ProposalItemDraft, ProposalSet, ScheduleChange } from "./types.ts";
 import { DAY_START_HOUR, SLOTS_PER_DAY } from "./types.ts";
 import { formatDuration, formatSlot, localDateKey } from "./time.ts";
 import { ApiError, calendarApi } from "./api.ts";
@@ -9,6 +9,7 @@ import { Dialog } from "./Dialog";
 import { RunningLateDialog } from "./RunningLateDialog";
 import { useOptimizerPreview } from "./useOptimizerPreview";
 import { ProposedChanges } from "./ProposedChanges";
+import { ScheduleProposalPanel } from "./ScheduleProposalPanel";
 
 const SLOT_HEIGHT = 48;
 const boundaries = Array.from({ length: SLOTS_PER_DAY + 1 }, (_, slot) => slot);
@@ -43,6 +44,8 @@ export function App() {
   const [reportingLate, setReportingLate] = useState(false);
   const [movingId, setMovingId] = useState<string | null>(null);
   const [drag, setDrag] = useState<{ itemId: string; slot: number; offset: number } | null>(null);
+  const [proposalSet, setProposalSet] = useState<ProposalSet | null>(null);
+  const [selectedAlternativeId, setSelectedAlternativeId] = useState<string | null>(null);
   const [committing, setCommitting] = useState(false);
   const commitLock = useRef(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -56,7 +59,9 @@ export function App() {
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const selected = items.find((item) => item.id === selectedId);
   const dragProposal = useOptimizerPreview(drag ? { type: "move", itemId: drag.itemId, targetStartSlot: drag.slot } : null, items);
-  const previewItems = dragProposal.preview?.schedule.items ?? items;
+  const selectedAlternative = proposalSet?.alternatives.find((option) => option.id === selectedAlternativeId) ?? proposalSet?.alternatives[0];
+  const previewItems = dragProposal.preview?.schedule.items ?? selectedAlternative?.schedule.items ?? items;
+  const activePreviewChanges = dragProposal.preview?.schedule.changes ?? selectedAlternative?.schedule.changes ?? [];
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 60_000);
@@ -99,6 +104,37 @@ export function App() {
       return null;
     } catch (error) {
       return messageFor(error);
+    }
+  }
+
+  async function previewItemOptions(item: ProposalItemDraft, candidateStartSlots?: number[]) {
+    try {
+      const result = await calendarApi.proposals(item, candidateStartSlots);
+      setProposalSet(result);
+      setSelectedAlternativeId(result.alternatives[0]?.id ?? null);
+      setView("calendar");
+      setFeedback(`${result.alternatives.length} schedule ${result.alternatives.length === 1 ? "option is" : "options are"} ready. Nothing has been saved.`);
+      return null;
+    } catch (error) {
+      return messageFor(error);
+    }
+  }
+
+  async function acceptScheduleProposal() {
+    if (!proposalSet || !selectedAlternative || commitLock.current) return;
+    commitLock.current = true;
+    setCommitting(true);
+    try {
+      const result = await calendarApi.acceptProposal(proposalSet.proposalSetId, selectedAlternative.id);
+      applySchedule(result);
+      setProposalSet(null);
+      setSelectedAlternativeId(null);
+      setFeedback(`Applied the ${formatSlot(selectedAlternative.startSlot)} plan. You can undo this schedule update.`);
+    } catch (error) {
+      setFeedback(messageFor(error));
+    } finally {
+      commitLock.current = false;
+      setCommitting(false);
     }
   }
 
@@ -247,7 +283,7 @@ export function App() {
       <section className="workspace">
         <header className="topbar">
           <div><p className="eyebrow">YOUR ADAPTIVE DAY</p><h1>{dateLabel}</h1></div>
-          <div className="top-actions"><button className="today-button" onClick={showCalendar}>Today</button><button className="late-top-button" onClick={() => setReportingLate(true)} disabled={!items.some((item) => item.startSlot !== null)}>Running late?</button><button ref={addButtonRef} className="add-button" onClick={() => setAdding(true)}>+ Add task</button></div>
+          <div className="top-actions"><button className="today-button" onClick={showCalendar}>Today</button><button className="late-top-button" onClick={() => setReportingLate(true)} disabled={!!proposalSet || !items.some((item) => item.startSlot !== null)}>Running late?</button><button ref={addButtonRef} className="add-button" onClick={() => setAdding(true)} disabled={!!proposalSet}>+ Add task</button></div>
         </header>
         <div className="feedback" role="status" aria-live="polite">{feedback || "Drag a flexible task to preview a new time, or select an item for more actions."}</div>
         {drag && <section className="drag-proposal" aria-label="Drag preview" aria-live="polite">
@@ -255,6 +291,10 @@ export function App() {
           <span>{dragProposal.error || "Other flexible tasks can move earlier or later. Release outside the calendar or press Escape to cancel."}</span>
           {dragProposal.preview && <ProposedChanges changes={dragProposal.preview.schedule.changes} />}
         </section>}
+        {proposalSet && selectedAlternative && <ScheduleProposalPanel proposalSet={proposalSet} selectedId={selectedAlternative.id}
+          applying={committing} onSelect={setSelectedAlternativeId}
+          onCancel={() => { setProposalSet(null); setSelectedAlternativeId(null); setFeedback("Schedule options canceled. Your calendar was not changed."); }}
+          onApply={acceptScheduleProposal} />}
         {(changes.length > 0 || canUndo) && <ChangePanel changes={changes} canUndo={canUndo} solverStatus={solverStatus} undoing={undoing} onUndo={undoReschedule} />}
         <div className="content">
           {view === "calendar" ? <section className="calendar-panel" aria-label="Day calendar" aria-busy={loading}>
@@ -266,8 +306,8 @@ export function App() {
                   {boundaries.slice(0, -1).map((slot) => <div className="grid-line" key={slot} />)}
                   {showNow && <div className="now-line" style={{ top: nowSlot * SLOT_HEIGHT }}><i /><span>{now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</span></div>}
                   {previewItems.map((item) => <CalendarCard key={item.id} item={item} onSelect={() => { if (!drag) setSelectedId(item.id); }}
-                    draggable={item.kind === "flexible" && !item.isPinned && item.startSlot !== null && item.startSlot >= nowSlot}
-                    proposed={!!dragProposal.preview && dragProposal.preview.schedule.changes.some((change) => change.itemId === item.id)}
+                    draggable={!proposalSet && item.kind === "flexible" && !item.isPinned && item.startSlot !== null}
+                    proposed={activePreviewChanges.some((change) => change.itemId === item.id)}
                     onDragStart={(event) => dragStart(event, item)} onDragEnd={() => setDrag(null)} />)}
                   {drag && <div className={`drop-target ${dragProposal.error ? "invalid" : ""}`} style={{ top: drag.slot * SLOT_HEIGHT, height: (items.find((item) => item.id === drag.itemId)?.durationSlots ?? 1) * SLOT_HEIGHT }} />}
                   {!loading && !items.length && <div className="calendar-empty"><strong>Your day is clear.</strong><span>Add an item or load the sample schedule.</span><button className="secondary-button" onClick={loadSample}>Load sample day</button></div>}
@@ -301,7 +341,7 @@ export function App() {
           </aside>
         </div>
       </section>
-      {adding && <ItemForm date={date} onSave={addItem} onClose={() => setAdding(false)} />}
+      {adding && <ItemForm date={date} onSave={addItem} onPreviewOptions={previewItemOptions} onClose={() => setAdding(false)} />}
       {editing && <ItemForm date={date} item={editing} onSave={updateItem} onClose={() => setEditing(null)} />}
       {reportingLate && <RunningLateDialog items={items} preferredId={nextItem?.id} onSubmit={commitAdjustment} onClose={() => setReportingLate(false)} />}
       {movingId && <RunningLateDialog items={items} preferredId={movingId} mode="move" onSubmit={commitAdjustment} onClose={() => setMovingId(null)} />}

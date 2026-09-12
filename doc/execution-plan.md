@@ -86,7 +86,9 @@ scheduling decisions.
 Scheduling rules:
 
 1. Divide the day into 32 slots, from 8:00 AM through midnight.
-2. Protect fixed, pinned, and already-started items during move/extend operations.
+2. Protect fixed, pinned, and other already-started items during move/extend
+   operations; an explicitly selected unpinned flexible task may move from an
+   elapsed start into a future slot.
 3. Lock a dragged task at the chosen start, or extend a selected item's duration
    while keeping its start unchanged.
 4. Require other placements to use unelapsed time and finish by their deadlines.
@@ -95,6 +97,10 @@ Scheduling rules:
 6. Return proposed placements and explanations without changing the saved day.
 7. On commit, validate the revision and time boundary, save the pre-change
    schedule as the single Undo snapshot, and persist the exact proposal atomically.
+8. For a new fixed event, solve each user-supplied candidate time against the
+   same day snapshot. For a new flexible task, solve the best placement and a
+   second-best distinct start. Preview alternatives without writes and persist
+   only the option explicitly accepted by the user.
 
 ## Build sequence
 

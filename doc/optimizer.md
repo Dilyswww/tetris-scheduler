@@ -15,7 +15,7 @@ split or cross days. OR-Tools CP-SAT owns placement decisions.
 | Required duration | Original duration | Original duration plus 1–4 slots (30–120 minutes) |
 | Can the selected item defer? | No | No |
 | Can other flexible tasks move earlier? | Yes, into time that has not elapsed, including the vacated slot | Yes, if that time has not elapsed |
-| Protected work | Fixed, pinned, and already-started items | Fixed, pinned, and already-started items other than the explicitly extended target |
+| Protected work | Fixed, pinned, and already-started items other than the explicitly moved target | Fixed, pinned, and already-started items other than the explicitly extended target |
 
 These actions have different feasibility constraints, rather than competing
 versions of the same placement preference. A drag's chosen start is mandatory;
@@ -52,16 +52,20 @@ uses its own clock, not a client-supplied “now.”
 - Every non-target item whose original start is less than this boundary is
   locked in place. This includes completed and in-progress work.
 - Other movable tasks must start at or after this boundary.
-- A move cannot target elapsed time or move an already-started item.
+- A move cannot target elapsed time. An unpinned flexible task whose planned
+  start has passed may be explicitly moved to an unelapsed slot; this models
+  work the user intended to do earlier but did not complete.
 - The selected extended item may retain an elapsed start. Its new end must
   reach the current time or later and remain within its deadline/day.
 - Fixed or pinned blockers are never silently moved, even if a selected
   extension overlaps them. That request is rejected.
 
 There is no explicit completion or “actually started” field yet. Conservatively
-freezing all started calendar entries can reject a late extension that crosses
-another entry whose planned start has passed, even if the user has not actually
-begun that entry. Explicit execution state would be a future enhancement.
+freezing all other started calendar entries can reject a late extension that
+crosses another entry whose planned start has passed, even if the user has not
+actually begun that entry. A user-selected unpinned flexible task is the one
+exception: it can be moved out of the past into a future slot. Explicit execution
+state would be a future enhancement.
 
 These time rules apply to optimizer move/extend operations and adding items.
 New flexible tasks can only use unelapsed slots; if no future gap fits their
@@ -192,6 +196,26 @@ Any successful add, edit, delete, pin, seed, optimizer commit, or Undo increment
 the revision. Thus a preview becomes stale even if later edits or Undo restore
 identical item values. Reusing a committed token cannot apply the change twice.
 Failed operations do not modify the day or its snapshot.
+
+### Multiple new-item options
+
+`POST /api/optimizer/proposals` accepts an unsaved fixed-event or flexible-task
+draft and an IANA time zone. Fixed events include one to four distinct candidate
+start slots; each is locked in turn and solved by CP-SAT. For flexible tasks,
+CP-SAT first finds the best required placement, then solves again while excluding
+that start to produce the best distinct alternative. If only one start is
+feasible, one option is returned. All solves use the same saved-day revision and
+time boundary. Infeasible options are omitted; a `409` is returned only when no
+placement is feasible. The response contains a temporary `proposalSetId` and the
+real schedule, structured changes, and disruption metrics for each option.
+Generating or switching options never writes to SQLite.
+
+`POST /api/optimizer/proposals/{proposalSetId}/accept` accepts an
+`alternativeId`. It validates the set's 120-second lifetime, revision, and time
+boundary, stores the current schedule as the Undo snapshot, and persists the
+exact selected schedule without solving again. Accepting one alternative
+invalidates the entire set, so another option cannot be applied afterward.
+The client never submits a replacement schedule.
 
 ### Undo: `POST /api/day/{date}/undo`
 
