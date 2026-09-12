@@ -203,12 +203,16 @@ class Repository:
         with self.connection() as db:
             return DaySchedule(date=day, items=self._read(db, day), can_undo=self._has_snapshot(db, day))
 
-    def add(self, item: CalendarItem) -> DaySchedule:
+    def add(self, item: CalendarItem, time_zone: str = "UTC") -> DaySchedule:
         with self.connection(write=True) as db:
             existing = self._read(db, item.date)
             if any(entry.id == item.id for entry in existing):
                 raise ScheduleConflict("An item with this ID already exists. Reload your calendar.")
-            result = schedule_items([*existing, item])
+            cutoff = self._cutoff(item.date, time_zone)
+            if (item.kind == "fixed" or item.is_pinned) and item.start_slot is not None and item.start_slot < cutoff:
+                raise ScheduleConflict("New fixed or pinned items must start at a time that has not elapsed.")
+            locked = frozenset(entry.id for entry in existing if entry.start_slot is not None and entry.start_slot < cutoff)
+            result = schedule_items([*existing, item], locked_ids=locked, earliest_start_slot=cutoff)
             self._clear_snapshot(db, item.date)
             return self._save(db, item.date, result.items, solver_status=result.status)
 

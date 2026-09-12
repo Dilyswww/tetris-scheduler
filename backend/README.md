@@ -24,7 +24,7 @@ Routes:
 
 - `GET /api/health`
 - `GET /api/day/{date}`
-- `POST /api/items`
+- `POST /api/items?timeZone=America%2FNew_York` — add using unelapsed slots (default zone: UTC)
 - `PUT /api/items/{id}`
 - `PATCH /api/items/{id}`
 - `DELETE /api/items/{id}`

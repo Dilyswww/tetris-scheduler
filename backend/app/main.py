@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from datetime import date
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Query, Request
 from fastapi.responses import JSONResponse
 
 from .models import CalendarItem, CommitRequest, DaySchedule, PinUpdate, PreviewRequest, RescheduleRequest, SchedulePreview
@@ -48,8 +48,8 @@ def create_app(db_path: Path | None = None) -> FastAPI:
         return repository.get_day(day)
 
     @app.post("/api/items", response_model=DaySchedule, status_code=201)
-    def add_item(item: CalendarItem):
-        return repository.add(item)
+    def add_item(item: CalendarItem, time_zone: str = Query(default="UTC", alias="timeZone", min_length=1, max_length=100)):
+        return repository.add(item, time_zone)
 
     @app.patch("/api/items/{item_id}", response_model=DaySchedule)
     def pin_item(item_id: str, update: PinUpdate):

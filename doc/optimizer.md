@@ -63,14 +63,27 @@ freezing all started calendar entries can reject a late extension that crosses
 another entry whose planned start has passed, even if the user has not actually
 begun that entry. Explicit execution state would be a future enhancement.
 
-These time rules apply to optimizer move/extend operations. Ordinary add/edit/
-delete/pin placement remains the existing whole-day planning behavior. Undo
+These time rules apply to optimizer move/extend operations and adding items.
+New flexible tasks can only use unelapsed slots; if no future gap fits their
+duration and deadline, they are deferred. Existing started items stay locked
+during additions. New fixed or pinned items with elapsed starts are rejected.
+Ordinary edit/delete/pin placement remains the existing whole-day planning behavior. Undo
 restores the exact prior snapshot, even if time has since advanced.
 
 ## HTTP interface
 
 All JSON fields use camelCase. Request objects reject unknown fields and require
 integer slot values. The routes are also described in FastAPI's `/docs`.
+
+### Add: `POST /api/items?timeZone=America%2FNew_York`
+
+The body remains a `CalendarItem`. The optional `timeZone` query parameter
+defaults to UTC for existing API clients; the frontend always sends the browser's
+IANA time zone. The server computes the earliest start using its current clock.
+At 10:15 AM, the first eligible start is 10:30 AM. A supplied past start on an
+unpinned flexible task is rescheduled; a fixed or pinned past start returns
+`409`. Past calendar dates are rejected, future dates can start at 8 AM, and
+tasks that cannot fit in today's remaining time are saved as deferred.
 
 ### Preview: `POST /api/optimizer/preview`
 

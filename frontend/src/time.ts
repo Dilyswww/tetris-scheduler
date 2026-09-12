@@ -1,4 +1,4 @@
-import { DAY_START_HOUR, SLOT_MINUTES } from "./types.ts";
+import { DAY_START_HOUR, SLOT_MINUTES, SLOTS_PER_DAY } from "./types.ts";
 
 export function formatSlot(slot: number) {
   const minutes = DAY_START_HOUR * 60 + slot * SLOT_MINUTES;
@@ -14,4 +14,12 @@ export function formatDuration(slots: number) {
 
 export function localDateKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+export function earliestStartSlot(date: string, now = new Date()) {
+  const today = localDateKey(now);
+  if (date < today) return SLOTS_PER_DAY;
+  if (date > today) return 0;
+  const minutes = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60 + now.getMilliseconds() / 60_000;
+  return Math.max(0, Math.min(SLOTS_PER_DAY, Math.ceil((minutes - DAY_START_HOUR * 60) / SLOT_MINUTES)));
 }

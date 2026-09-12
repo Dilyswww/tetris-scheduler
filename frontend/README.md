@@ -39,7 +39,8 @@ or schedule work across multiple days.
 ## Manual demo check
 
 1. Add a flexible task with a 30-minute duration and a 5 PM deadline. It should
-   fill the earliest available half-hour while existing placements stay put.
+   fill the earliest available future half-hour while existing started items
+   stay put. If no remaining gap fits before the deadline, it should be deferred.
 2. Use Edit from the Tasks view, change its duration or deadline, and select
    Reschedule task. The same item should update without creating a duplicate.
 3. Add a fixed event at an unpinned flexible task's time. The flexible task

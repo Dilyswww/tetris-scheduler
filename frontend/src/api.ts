@@ -22,7 +22,7 @@ async function request<T = DaySchedule>(path: string, init?: RequestInit): Promi
 
 export const calendarApi = {
   getDay: (date: string) => request(`/api/day/${date}`),
-  addItem: (item: CalendarItem) => request("/api/items", { method: "POST", body: JSON.stringify(item) }),
+  addItem: (item: CalendarItem) => request(`/api/items?timeZone=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`, { method: "POST", body: JSON.stringify(item) }),
   updateItem: (item: CalendarItem) => request(`/api/items/${encodeURIComponent(item.id)}`, { method: "PUT", body: JSON.stringify(item) }),
   setPin: (id: string, isPinned: boolean) => request(`/api/items/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ isPinned }) }),
   deleteItem: (id: string) => request(`/api/items/${encodeURIComponent(id)}`, { method: "DELETE" }),
