@@ -7,7 +7,7 @@ import { Dialog } from "./Dialog";
 
 const boundaries = Array.from({ length: SLOTS_PER_DAY + 1 }, (_, slot) => slot);
 
-export function ItemForm({ date, onAdd, onClose }: { date: string; onAdd: (item: CalendarItem) => string | null; onClose: () => void }) {
+export function ItemForm({ date, onAdd, onClose }: { date: string; onAdd: (item: CalendarItem) => Promise<string | null>; onClose: () => void }) {
   const [kind, setKind] = useState<CalendarItem["kind"]>("flexible");
   const [title, setTitle] = useState("");
   const [note, setNote] = useState("");
@@ -16,16 +16,19 @@ export function ItemForm({ date, onAdd, onClose }: { date: string; onAdd: (item:
   const [duration, setDuration] = useState(2);
   const [deadline, setDeadline] = useState(18);
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const base = { id: crypto.randomUUID(), title: title.trim(), note: note.trim(), date, isPinned: false };
     const item: CalendarItem = kind === "fixed"
       ? { ...base, kind, startSlot: start, durationSlots: end - start, accent: "blue" }
       : { ...base, kind, startSlot: null, durationSlots: duration, deadlineSlot: deadline, accent: "purple" };
-    const failure = onAdd(item);
-    if (failure) setError(failure);
-    else onClose();
+    setSaving(true);
+    setError(null);
+    const failure = await onAdd(item);
+    setSaving(false);
+    if (failure) setError(failure); else onClose();
   }
 
   return (
@@ -55,7 +58,7 @@ export function ItemForm({ date, onAdd, onClose }: { date: string; onAdd: (item:
         </div>
         <label>Note <span className="optional">(optional)</span><input maxLength={240} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Location, link, or a little context" /></label>
         {error && <p role="alert" className="form-error">{error}</p>}
-        <div className="dialog-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button className="add-button" type="submit">{kind === "fixed" ? "Add event" : "Schedule task"}</button></div>
+        <div className="dialog-actions"><button type="button" className="secondary-button" onClick={onClose} disabled={saving}>Cancel</button><button className="add-button" type="submit" disabled={saving}>{saving ? "Saving…" : kind === "fixed" ? "Add event" : "Schedule task"}</button></div>
       </form>
     </Dialog>
   );

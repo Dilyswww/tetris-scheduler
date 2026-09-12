@@ -4,3 +4,10 @@ frontend/*.tsbuildinfo
 frontend/vite.config.js
 frontend/vite.config.d.ts
 .DS_Store
+backend/.venv/
+backend/data/
+backend/dist/
+backend/.pytest_cache/
+__pycache__/
+*.pyc
+.cache/

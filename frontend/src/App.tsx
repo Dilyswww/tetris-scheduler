@@ -3,8 +3,7 @@ import type { CSSProperties } from "react";
 import type { CalendarItem } from "./types.ts";
 import { DAY_START_HOUR, SLOTS_PER_DAY } from "./types.ts";
 import { formatDuration, formatSlot, localDateKey } from "./time.ts";
-import { createSeedItems } from "./seed.ts";
-import { scheduleItems } from "./scheduler.ts";
+import { ApiError, calendarApi } from "./api.ts";
 import { ItemForm } from "./ItemForm";
 import { Dialog } from "./Dialog";
 
@@ -29,7 +28,8 @@ export function App() {
   const date = localDateKey(day);
   const dateLabel = day.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
   const weekday = day.toLocaleDateString("en-US", { weekday: "long" });
-  const [items, setItems] = useState(() => createSeedItems(date));
+  const [items, setItems] = useState<CalendarItem[]>([]);
+  const [loading, setLoading] = useState(true);
   const [view, setView] = useState<"calendar" | "tasks">("calendar");
   const [adding, setAdding] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -44,6 +44,16 @@ export function App() {
     return () => window.clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    calendarApi.getDay(date)
+      .then((schedule) => { if (active) setItems(schedule.items); })
+      .catch((error: unknown) => { if (active) setFeedback(messageFor(error)); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [date]);
+
   const plannedSlots = items.reduce((sum, item) => sum + item.durationSlots, 0);
   const focusSlots = items.filter((item) => item.kind === "flexible").reduce((sum, item) => sum + item.durationSlots, 0);
   const openSlots = SLOTS_PER_DAY - plannedSlots;
@@ -52,26 +62,49 @@ export function App() {
   const showNow = localDateKey(now) === date && nowSlot >= 0 && nowSlot < SLOTS_PER_DAY;
   const nextItem = orderedItems.find((item) => item.startSlot !== null && item.startSlot >= nowSlot);
 
-  function addItem(item: CalendarItem) {
-    const result = scheduleItems([...items, item]);
-    if (!result.ok) return result.error;
-    const placed = result.items.find((entry) => entry.id === item.id)!;
-    const moved = items.filter((entry) => result.items.find((next) => next.id === entry.id)?.startSlot !== entry.startSlot);
-    setItems(result.items);
-    setFeedback(`Added ${placed.title} at ${formatSlot(placed.startSlot!)}.${moved.length ? ` Moved ${moved.map((entry) => `${entry.title} to ${formatSlot(result.items.find((next) => next.id === entry.id)!.startSlot!)}`).join(", ")} to make room.` : ""}`);
-    return null;
+  async function addItem(item: CalendarItem) {
+    try {
+      const result = await calendarApi.addItem(item);
+      const placed = result.items.find((entry) => entry.id === item.id)!;
+      const moved = items.filter((entry) => result.items.find((next) => next.id === entry.id)?.startSlot !== entry.startSlot);
+      setItems(result.items);
+      setFeedback(`Added ${placed.title} at ${formatSlot(placed.startSlot!)}.${moved.length ? ` Moved ${moved.map((entry) => `${entry.title} to ${formatSlot(result.items.find((next) => next.id === entry.id)!.startSlot!)}`).join(", ")} to make room.` : ""}`);
+      return null;
+    } catch (error) {
+      return messageFor(error);
+    }
   }
 
-  function togglePin(item: CalendarItem) {
-    setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, isPinned: !entry.isPinned } : entry));
-    setFeedback(`${item.title} ${item.isPinned ? "unpinned" : `pinned at ${formatSlot(item.startSlot!)}`}.${item.kind === "fixed" ? " Fixed events always stay in place." : ""}`);
+  async function togglePin(item: CalendarItem) {
+    try {
+      const result = await calendarApi.setPin(item.id, !item.isPinned);
+      setItems(result.items);
+      setFeedback(`${item.title} ${item.isPinned ? "unpinned" : `pinned at ${formatSlot(item.startSlot!)}`}.${item.kind === "fixed" ? " Fixed events always stay in place." : ""}`);
+    } catch (error) {
+      setFeedback(messageFor(error));
+    }
   }
 
-  function removeItem(item: CalendarItem) {
-    setItems((current) => current.filter((entry) => entry.id !== item.id));
-    setSelectedId(null);
-    setFeedback(`Deleted ${item.title}.`);
-    addButtonRef.current?.focus();
+  async function removeItem(item: CalendarItem) {
+    try {
+      const result = await calendarApi.deleteItem(item.id);
+      setItems(result.items);
+      setSelectedId(null);
+      setFeedback(`Deleted ${item.title}.`);
+      addButtonRef.current?.focus();
+    } catch (error) {
+      setFeedback(messageFor(error));
+    }
+  }
+
+  async function loadSample() {
+    try {
+      const result = await calendarApi.seedDay(date);
+      setItems(result.items);
+      setFeedback("Loaded a sample day. Your changes will now persist across refreshes.");
+    } catch (error) {
+      setFeedback(messageFor(error));
+    }
   }
 
   function showCalendar() {
@@ -100,7 +133,7 @@ export function App() {
         </header>
         <div className="feedback" role="status" aria-live="polite">{feedback || "Select an item to see its details, pin it, or delete it."}</div>
         <div className="content">
-          {view === "calendar" ? <section className="calendar-panel" aria-label="Day calendar">
+          {view === "calendar" ? <section className="calendar-panel" aria-label="Day calendar" aria-busy={loading}>
             <div className="calendar-header"><span>Time</span><strong>{weekday} <span className="grid-caption">· 30-minute slots</span></strong></div>
             <div className="calendar-scroll" ref={calendarRef} tabIndex={0} role="region" aria-label="Calendar, 8 AM to midnight">
               <div className="calendar-body" style={{ "--slot-height": `${SLOT_HEIGHT}px` } as CSSProperties}>
@@ -109,6 +142,7 @@ export function App() {
                   {boundaries.slice(0, -1).map((slot) => <div className="grid-line" key={slot} />)}
                   {showNow && <div className="now-line" style={{ top: nowSlot * SLOT_HEIGHT }}><i /><span>{now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</span></div>}
                   {orderedItems.map((item) => <CalendarCard key={item.id} item={item} onSelect={() => setSelectedId(item.id)} />)}
+                  {!loading && !items.length && <div className="calendar-empty"><strong>Your day is clear.</strong><span>Add an item or load the sample schedule.</span><button className="secondary-button" onClick={loadSample}>Load sample day</button></div>}
                 </div>
               </div>
             </div>
@@ -118,10 +152,10 @@ export function App() {
               <span className={`task-swatch ${item.accent}`} aria-hidden="true" /><span className="task-row-main"><strong>{item.title}</strong><span>{item.kind === "fixed" ? "Fixed event" : `Flexible · due ${formatSlot(item.deadlineSlot)}`}{item.isPinned ? " · Pinned" : ""}</span></span>
               <span className="task-row-time">{formatSlot(item.startSlot!)}<small>{formatDuration(item.durationSlots)}</small></span>
             </button>)}
-            {!items.length && <div className="empty-state"><p>Your day is a blank canvas.</p><button className="add-button" onClick={() => setAdding(true)}>Add your first task</button></div>}
+            {!loading && !items.length && <div className="empty-state"><p>Your day is a blank canvas.</p><button className="add-button" onClick={() => setAdding(true)}>Add your first task</button><button className="secondary-button" onClick={loadSample}>Load sample day</button></div>}
           </section>}
           <aside className="right-panel">
-            <section className="notice-card"><div className="notice-icon" aria-hidden="true">✦</div><div><p className="eyebrow">{openSlots ? "ROOM TO BREATHE" : "FULL DAY"}</p><strong>{formatDuration(openSlots)} available.</strong><span>{openSlots} open half-hour {openSlots === 1 ? "slot" : "slots"}.</span></div></section>
+            <section className="notice-card"><div className="notice-icon" aria-hidden="true">✦</div><div><p className="eyebrow">{loading ? "SYNCING" : openSlots ? "ROOM TO BREATHE" : "FULL DAY"}</p><strong>{loading ? "Loading your day…" : `${formatDuration(openSlots)} available.`}</strong><span>{loading ? "Connecting to your saved calendar." : `${openSlots} open half-hour ${openSlots === 1 ? "slot" : "slots"}.`}</span></div></section>
             <section className="legend-card"><p className="eyebrow">SCHEDULE</p>
               <div><i className="legend-dot fixed-dot" /> Fixed events <span>Can't move</span></div><div><i className="legend-dot flex-dot" /> Flexible tasks <span>Can adapt</span></div><div><i className="legend-dot pin-dot" /> Pinned <span>Keep in place</span></div>
             </section>
@@ -143,4 +177,8 @@ export function App() {
       </Dialog>}
     </main>
   );
+}
+
+function messageFor(error: unknown) {
+  return error instanceof ApiError || error instanceof Error ? error.message : "Something went wrong. Try again.";
 }

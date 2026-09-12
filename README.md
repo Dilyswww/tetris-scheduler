@@ -9,18 +9,30 @@ deadlines. Each day runs from 8 AM to midnight in 30-minute slots.
 With mise installed, run these commands from the **repository root**:
 
 ```sh
+mise trust
 mise install
 mise exec -- npm --prefix frontend ci
+mise run backend-sync
+```
+
+Start the two development servers in separate terminals:
+
+```sh
+mise run backend
+```
+
+```sh
 mise run frontend
 ```
 
-Open the local address printed by Vite, normally `http://localhost:5173`.
-Press `Ctrl+C` in the terminal to stop the server.
+Open the frontend address printed by Vite, normally `http://localhost:5173`.
+FastAPI listens at `http://127.0.0.1:8000`; its API documentation is at
+`http://127.0.0.1:8000/docs`. Press `Ctrl+C` in each terminal to stop the
+servers.
 
-[mise.toml](mise.toml) selects Node 24.19.0, Python 3.12, and uv. The current
-frontend only requires Node/npm; Python and uv are for the planned backend.
-Mise manages tool versions, while uv will manage Python dependencies and the
-backend virtual environment.
+[mise.toml](mise.toml) selects Node 24.19.0, Python 3.12, and uv. Mise manages
+tool versions; npm manages frontend packages and uv manages Python packages in
+`backend/.venv`.
 
 ## Build, run, and test commands
 
@@ -28,11 +40,15 @@ All commands in this table run from the **repository root**.
 
 | Action | Command |
 | --- | --- |
+| Trust this repository's mise configuration | `mise trust` |
 | Install configured tools | `mise install` |
 | Install frontend dependencies from the lockfile | `mise exec -- npm --prefix frontend ci` |
+| Install backend dependencies from the lockfile | `mise run backend-sync` |
 | Start the frontend with hot reload | `mise run frontend` |
+| Start FastAPI with hot reload | `mise run backend` |
 | Type-check and build the frontend | `mise run frontend-build` |
-| Run scheduler tests | `mise exec -- npm --prefix frontend test` |
+| Type-check the frontend | `mise exec -- npm --prefix frontend test` |
+| Run backend API and scheduler tests | `mise run backend-test` |
 | Preview the production build locally | `mise exec -- npm --prefix frontend run preview` |
 
 The build writes to `frontend/dist/`. Run the build before starting a production
@@ -58,34 +74,34 @@ Keep this command reference updated when adding or changing scripts in
 
 ## Current state
 
-Phase 1 runs entirely in the frontend:
+Phase 1 is implemented across the frontend and backend:
 
 - React + TypeScript + Vite calendar and task-list views.
 - Create and delete fixed events and flexible tasks.
 - Pin and unpin items.
-- First-fit placement that protects fixed/pinned items and respects deadlines.
+- FastAPI and SQLite persistence across browser refreshes.
+- Python first-fit placement that protects fixed/pinned items and respects
+  deadlines.
 - Full-day scrolling and live schedule totals.
 
-The app loads a sample day. Changes are held in React state and **reset on
-refresh**. No API keys, backend service, or database are required to run it.
+An empty day can be filled with sample data from the interface. The backend
+creates its SQLite database at `backend/data/tetris.sqlite3` on first start.
+No API keys or external services are required.
 
-FastAPI, the Python scheduler, and SQLite persistence are planned. Delay
-handling, movement optimization, deferral, and Undo are still pending.
+Delay handling, movement optimization, deferral, and Undo are still pending.
 Google Calendar and sponsor integrations are optional later work.
 
 ## Project layout
 
 ```text
-frontend/          React app, placeholder scheduler, and tests
+frontend/          React interface and API client
+backend/           FastAPI service, Python scheduler, SQLite repository, tests
 doc/               Execution plan and project documentation
 mise.toml          Development tool versions and task shortcuts
 AGENT.md           Project brief, constraints, and implementation phases
 ```
 
-The planned `backend/` directory will contain FastAPI, persistence, and the
-Python scheduler. Backend build/run commands will be added here when that
-service is implemented.
-
 See the [execution plan](doc/execution-plan.md) for the eight-hour build scope
 and the [frontend notes](frontend/README.md) for the source map, scheduler
-limitations, and manual demo checks.
+limitations, and manual demo checks. Backend details are in
+[backend/README.md](backend/README.md).
