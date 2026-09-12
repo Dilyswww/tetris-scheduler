@@ -1,15 +1,8 @@
 # Tetris frontend — Phase 1
 
-From the repository root, install the tools with `mise install`, then install
-frontend dependencies with `cd frontend && npm ci`. Start the app from the root
-with `mise run frontend`, or run `npm run dev` in `frontend/`.
-
-Checks, run in `frontend/`:
-
-```sh
-npm test
-npm run build
-```
+See the [root README](../README.md#build-run-and-test-commands) for setup,
+development, build, test, and preview commands. That is the shared command
+reference for the project.
 
 The scheduler tests use Node 24's built-in TypeScript support; no additional
 test dependency is required.
