@@ -68,7 +68,7 @@ def test_demo_ignores_real_wall_clock_and_request_timezone(client, frozen_clock)
     assert commit(client, preview).status_code == 200
 
 
-def test_three_dates_keep_independent_schedules_and_undo(client):
+def test_three_dates_share_one_atomic_window_undo(client):
     original = {}
     for day in ["2026-09-11", "2026-09-12", "2026-09-13"]:
         response = add(client, day, f"work-{day}")
@@ -79,9 +79,9 @@ def test_three_dates_keep_independent_schedules_and_undo(client):
     assert client.get("/api/day/2026-09-11").json()["canUndo"]
     assert client.get("/api/day/2026-09-12").json()["canUndo"]
     assert client.get("/api/day/2026-09-13").json()["items"] == original["2026-09-13"]
-    assert client.post("/api/day/2026-09-11/undo").json()["items"] == original["2026-09-11"]
-    assert client.get("/api/day/2026-09-12").json()["items"][0]["startSlot"] == 6
-    assert client.post("/api/day/2026-09-12/undo").json()["items"] == original["2026-09-12"]
+    assert client.post("/api/day/2026-09-11/undo").json()["items"][0]["startSlot"] == 4
+    assert client.get("/api/day/2026-09-12").json()["items"] == original["2026-09-12"]
+    assert client.post("/api/day/2026-09-12/undo").status_code == 409
 
 
 def test_current_past_and_future_days_follow_demo_clock(client):
@@ -175,3 +175,72 @@ def test_add_options_and_running_late_use_simulated_time(client):
     }, "timeZone": "UTC"})
     assert options.status_code == 200
     assert all(option["startSlot"] >= 5 for option in options.json()["alternatives"])
+
+
+def test_debug_reset_replaces_all_days_and_clears_undo(client):
+    assert add(client).status_code == 201
+    assert commit(client, move(client).json()).status_code == 200
+    clock = client.get("/api/demo/clock").json()
+
+    response = client.post("/api/debug/reset?day=2026-09-12")
+
+    assert response.status_code == 200, response.text
+    schedule = response.json()
+    assert schedule["date"] == "2026-09-12"
+    assert [len(day["items"]) for day in schedule["days"]] == [13, 8, 7]
+    assert {item["id"] for item in schedule["items"]} == {
+        item["id"] for item in schedule["days"][1]["items"]
+    }
+    all_items = [item for day in schedule["days"] for item in day["items"]]
+    assert {item["id"] for item in all_items if item["startSlot"] is None} == {
+        "debug-travel-form", "debug-long-report",
+    }
+    assert {item["id"] for item in all_items if item["isPinned"]} == {
+        "debug-gym", "debug-groceries", "debug-pack",
+    }
+    for day in schedule["days"]:
+        occupied = set()
+        for item in day["items"]:
+            assert item["date"] == day["date"]
+            if item["startSlot"] is None:
+                continue
+            slots = set(range(item["startSlot"], item["startSlot"] + item["durationSlots"]))
+            assert not occupied & slots
+            assert max(slots) < 32
+            occupied |= slots
+    assert client.get("/api/demo/clock").json() == clock
+    assert all(not client.get(f"/api/day/2026-09-{day}").json()["canUndo"] for day in (11, 12, 13))
+
+    repeated = client.post("/api/debug/reset?day=2026-09-12")
+    assert repeated.status_code == 200
+    assert repeated.json()["days"] == schedule["days"]
+
+
+def test_debug_schedule_has_cross_day_running_late_story(client):
+    schedule = client.post("/api/debug/reset").json()
+    before = {item["id"]: item for day in schedule["days"] for item in day["items"]}
+
+    response = client.post("/api/optimizer/preview", json={
+        "operation": {"type": "extend", "itemId": "debug-client-review", "additionalSlots": 2},
+        "timeZone": "America/New_York",
+    })
+
+    assert response.status_code == 200, response.text
+    after = {item["id"]: item for day in response.json()["schedule"]["days"] for item in day["items"]}
+    assert after["debug-client-review"]["durationSlots"] == 4
+    assert any(
+        item["date"] > before[item_id]["date"]
+        for item_id, item in after.items()
+        if item_id in before and before[item_id]["date"] == "2026-09-11"
+    )
+
+
+def test_debug_reset_invalidates_existing_preview(client):
+    assert add(client).status_code == 201
+    proposal = move(client).json()
+    assert client.post("/api/debug/reset").status_code == 200
+    assert commit(client, proposal).status_code == 409
+
+
+def test_debug_reset_rejects_dates_outside_demo(client):
+    assert client.post("/api/debug/reset?day=2026-09-14").status_code == 409

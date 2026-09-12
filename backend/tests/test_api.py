@@ -131,7 +131,7 @@ def test_converting_fixed_event_to_flexible_preserves_its_start(tmp_path):
         assert item["startSlot"] == 12
 
 
-def test_edit_after_running_late_invalidates_undo_only_on_success(tmp_path):
+def test_edit_after_running_late_replaces_undo_only_on_success(tmp_path):
     with TestClient(create_app(tmp_path / "test.sqlite3")) as client:
         assert client.post("/api/items", json=fixed()).status_code == 201
         assert client.post("/api/items", json=flexible(start_slot=2)).status_code == 201
@@ -149,9 +149,39 @@ def test_edit_after_running_late_invalidates_undo_only_on_success(tmp_path):
         edited = client.put("/api/items/work", json={**work, "title": "Edited after delay"})
         assert edited.status_code == 200
         assert edited.json()["solverStatus"] in ("optimal", "feasible")
-        assert edited.json()["canUndo"] is False
+        assert edited.json()["canUndo"] is True
+
+        # Undo is one level deep: the edit becomes the latest action and
+        # restores the already-adjusted schedule from immediately before it.
+        undone = client.post(f"/api/day/{DAY}/undo")
+        assert undone.status_code == 200
+        assert undone.json()["items"] == saved["items"]
+        assert undone.json()["canUndo"] is False
         assert client.post(f"/api/day/{DAY}/undo").status_code == 409
-        assert next(item for item in client.get(f"/api/day/{DAY}").json()["items"] if item["id"] == "work")["title"] == "Edited after delay"
+
+
+def test_edit_and_automatic_rescheduling_can_be_undone_across_days(tmp_path):
+    with TestClient(create_app(tmp_path / "test.sqlite3")) as client:
+        client.post("/api/demo/start")
+        original = flexible(start_slot=0)
+        original.update({"date": "2026-09-11", "earliestDate": "2026-09-11", "deadlineDate": "2026-09-13", "deadlineSlot": 32})
+        assert client.post("/api/items", json=original).status_code == 201
+        before = {
+            day: client.get(f"/api/day/{day}").json()["items"]
+            for day in ("2026-09-11", "2026-09-12", "2026-09-13")
+        }
+
+        replacement = {**original, "title": "Longer focused work", "durationSlots": 4}
+        edited = client.put("/api/items/work", json=replacement)
+        assert edited.status_code == 200
+        assert edited.json()["canUndo"] is True
+        assert next(item for plan in edited.json()["days"] for item in plan["items"] if item["id"] == "work")["title"] == "Longer focused work"
+
+        restored = client.post("/api/day/2026-09-13/undo")
+        assert restored.status_code == 200
+        for day in before:
+            assert client.get(f"/api/day/{day}").json()["items"] == before[day]
+            assert client.get(f"/api/day/{day}").json()["canUndo"] is False
 
 
 def test_running_late_moves_only_the_conflict_and_undo_restores_exact_state(tmp_path):

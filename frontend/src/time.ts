@@ -16,6 +16,10 @@ export function localDateKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
+export function formatDate(date?: string | null) {
+  return date ? new Date(`${date}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
+}
+
 export function earliestStartSlot(date: string, now = new Date()) {
   const today = localDateKey(now);
   if (date < today) return SLOTS_PER_DAY;

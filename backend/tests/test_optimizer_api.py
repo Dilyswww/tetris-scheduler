@@ -26,6 +26,10 @@ def extend(item_id="work", slots=2):
     return {"type": "extend", "itemId": item_id, "additionalSlots": slots}
 
 
+def edit(item):
+    return {"type": "edit", "item": item}
+
+
 def commit(client, proposal):
     return client.post("/api/optimizer/commit", json={"previewToken": proposal["previewToken"]})
 
@@ -67,6 +71,52 @@ def test_extension_keeps_start_and_moves_other_work_later(client):
     assert [c["changeType"] for c in proposal["schedule"]["changes"]] == ["extended", "moved"]
 
 
+def test_edit_can_be_toggled_as_a_preview_before_committing(client):
+    client.post("/api/items", json=flexible(start_slot=0))
+    client.post("/api/items", json=flexible("other", start_slot=2))
+    before = day(client)
+    replacement = {**before["items"][0], "title": "Longer focus", "durationSlots": 4}
+
+    response = preview(client, edit(replacement))
+
+    assert response.status_code == 200, response.text
+    proposal = response.json()
+    proposed = {item["id"]: item for item in proposal["schedule"]["items"]}
+    assert proposed["work"]["title"] == "Longer focus"
+    assert proposed["work"]["durationSlots"] == 4
+    assert proposed["other"]["startSlot"] == 4
+    assert proposal["schedule"]["changes"][0]["changeType"] == "edited"
+    assert day(client) == before
+
+    saved = commit(client, proposal)
+    assert saved.status_code == 200
+    assert saved.json()["items"] == proposal["schedule"]["items"]
+    assert client.post(f"/api/day/{DAY}/undo").json()["items"] == before["items"]
+
+
+def test_edit_preview_rejects_identity_and_date_changes_without_writes(client):
+    client.post("/api/items", json=flexible(start_slot=0))
+    before = day(client)
+    replacement = before["items"][0]
+    assert preview(client, edit({**replacement, "id": "different"})).status_code == 404
+    assert preview(client, edit({**replacement, "date": "2026-09-13", "earliestDate": "2026-09-13", "deadlineDate": "2026-09-13"})).status_code == 409
+    assert day(client) == before
+
+
+def test_edit_preview_allows_past_metadata_but_keeps_placement_locked(client):
+    client.post("/api/demo/start")
+    past = {**fixed(start_slot=2), "date": "2026-09-11"}
+    assert client.post("/api/items", json=past).status_code == 201
+    client.put("/api/demo/clock", json={"now": "2026-09-12T10:00:00"})
+
+    response = preview(client, edit({**past, "title": "Renamed past meeting"}))
+
+    assert response.status_code == 200, response.text
+    item = response.json()["schedule"]["days"][0]["items"][0]
+    assert item["title"] == "Renamed past meeting"
+    assert item["startSlot"] == 2
+
+
 def test_drag_30_90_60_minutes_reorders_within_original_three_hours(client):
     for item_id, start, duration in [("short", 0, 1), ("long", 1, 3), ("medium", 4, 2)]:
         assert client.post("/api/items", json={**flexible(item_id, start_slot=start), "durationSlots": duration, "deadlineSlot": 32}).status_code == 201
@@ -74,7 +124,7 @@ def test_drag_30_90_60_minutes_reorders_within_original_three_hours(client):
     response = preview(client, move("short", 5))
     assert response.status_code == 200
     proposal = response.json()
-    assert proposal["penalties"] == {"movedTask": 1, "displacementSlot": 2, "largestDisplacementSlot": 4}
+    assert proposal["penalties"] == {"movedTask": 1, "displacementSlot": 2, "largestDisplacementSlot": 4, "dayChange": 24}
     assert {item["id"]: item["startSlot"] for item in proposal["schedule"]["items"]} == {"short": 5, "long": 0, "medium": 3}
     assert proposal["schedule"]["solverStatus"] == "optimal"
     assert day(client) == before
@@ -89,9 +139,9 @@ def test_drag_30_90_60_minutes_reorders_within_original_three_hours(client):
 
 def test_extension_uses_its_own_defaults_and_merges_partial_overrides(client):
     client.post("/api/items", json=flexible(start_slot=0))
-    assert preview(client, extend()).json()["penalties"] == {"movedTask": 8, "displacementSlot": 2, "largestDisplacementSlot": 0}
+    assert preview(client, extend()).json()["penalties"] == {"movedTask": 8, "displacementSlot": 2, "largestDisplacementSlot": 0, "dayChange": 24}
     response = client.post("/api/optimizer/preview", json={"operation": extend(), "timeZone": "UTC", "penalties": {"displacementSlot": 5}})
-    assert response.json()["penalties"] == {"movedTask": 8, "displacementSlot": 5, "largestDisplacementSlot": 0}
+    assert response.json()["penalties"] == {"movedTask": 8, "displacementSlot": 5, "largestDisplacementSlot": 0, "dayChange": 24}
 
 
 @pytest.mark.parametrize("weights", [{"movedTask": -1}, {"displacementSlot": 1001}, {"largestDisplacementSlot": 0.5}, {"movedTask": True}, {"unknown": 3}])

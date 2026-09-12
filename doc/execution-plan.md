@@ -2,7 +2,8 @@
 
 ## Goal
 
-Build a three-day demo calendar that keeps a realistic plan when a task runs late.
+Build a three-day demo calendar, displayed on one shared timeline, that keeps a
+realistic plan when a task runs late.
 The demo must show fixed events, flexible tasks, pinned items, an automatic
 reschedule with minimal disruption, an explanation of the changes, and Undo.
 
@@ -19,8 +20,9 @@ Phase 2's drag-to-time and delay handling, CP-SAT movement optimization, deferra
 structured previews, validated commits, and one-level Undo are implemented. See
 [optimizer.md](optimizer.md) for the operation and API contracts. Navigation for
 September 11–13 and a shared manually adjustable demo clock are implemented; see
-[demo.md](demo.md). Each day's optimization is independent. Automatic movement
-between days and optional integrations remain pending.
+[demo.md](demo.md). Cross-day optimization is implemented with availability and
+deadline dates, a day-change penalty, dated previews, and shared atomic Undo.
+Each task remains entirely within one day. Optional integrations remain pending.
 
 ## Scope for the eight-hour hackathon
 
@@ -50,15 +52,17 @@ Apple Calendar/CalDAV, blockchain, or a production-grade multi-user system.
 ### Frontend
 
 Use React, TypeScript, and Vite. Build a custom day-grid rather than adapting
-a general calendar library: the product has one day, a fixed 30-minute grid,
+a general calendar library: the product displays one of three days, a fixed 30-minute grid,
 and special scheduling interactions.
 
 Frontend responsibilities:
 
-- Render the calendar, task form, detail panel, and change summary.
+- Render three side-by-side day columns, task form, detail panel, and change summary.
 - Make actions explicit: add, pin/unpin, extend by 30 minutes, undo.
 - Call the FastAPI backend for persisted data and rescheduling.
 - Visually distinguish fixed, flexible, pinned, moved, and deferred items.
+- Support dragging flexible tasks vertically within a day or horizontally across
+  dates, with a read-only whole-window preview before drop.
 
 ### Backend and persistence
 
@@ -75,19 +79,22 @@ Suggested routes:
 - `PUT /api/items/{id}`: edit an item.
 - `DELETE /api/items/{id}`: remove an item.
 - `POST /api/optimizer/preview`: preview a move or extension without saving.
-- `POST /api/optimizer/commit`: commit an unexpired preview if the day is unchanged.
+- `POST /api/optimizer/commit`: commit an unexpired preview if every day is unchanged.
 - `POST /api/day/{date}/undo`: restore the previous schedule snapshot.
+- `POST /api/debug/reset`: replace the three-day window with the deterministic
+  debug fixture and clear Undo.
 
 ### Scheduler
 
-Keep the scheduler as a pure Python module. It receives the day's items and a
+Keep the scheduler as a pure Python module. It receives the window's items and a
 change request, then returns a proposed schedule, a list of moves, and any
 deferred tasks. The API layer saves that result; it must not contain the
 scheduling decisions.
 
 Scheduling rules:
 
-1. Divide the day into 32 slots, from 8:00 AM through midnight.
+1. Divide each of three days into 32 slots, from 8:00 AM through midnight.
+   Each task's complete duration must fit inside one eligible day.
 2. Protect fixed, pinned, and other already-started items during move/extend
    operations; an explicitly selected unpinned flexible task may move from an
    elapsed start into a future slot.
@@ -95,14 +102,14 @@ Scheduling rules:
    while keeping its start unchanged.
 4. Require other placements to use unelapsed time and finish by their deadlines.
 5. Use CP-SAT to minimize deferred tasks, then a weighted movement score combining
-   move count, total displacement, and largest individual displacement. Use
+   move count, total displacement, largest individual displacement, and days crossed. Use
    different default weights for move/extend, with scheduling preferences as ties.
-6. Return proposed placements and explanations without changing the saved day.
-7. On commit, validate the revision and time boundary, save the pre-change
-   schedule as the single Undo snapshot, and persist the exact proposal atomically.
+6. Return all three proposed calendars and dated explanations without saving.
+7. On commit, validate every day's revision and time boundary, save the pre-change
+   window as the shared Undo snapshot, and persist the exact proposal atomically.
 8. For a new fixed event, solve each user-supplied candidate time against the
-   same day snapshot. For a new flexible task, solve the best placement and a
-   second-best distinct start. Preview alternatives without writes and persist
+   same window snapshot. For a new flexible task, solve the best placement and a
+   second-best distinct date/start. Preview alternatives without writes and persist
    only the option explicitly accepted by the user.
 
 ## Build sequence

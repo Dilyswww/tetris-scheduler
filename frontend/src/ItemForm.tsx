@@ -1,8 +1,8 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 import type { CalendarItem, ProposalItemDraft } from "./types.ts";
-import { SLOTS_PER_DAY } from "./types.ts";
-import { earliestStartSlot, formatDuration, formatSlot } from "./time.ts";
+import { DEMO_DATES, SLOTS_PER_DAY } from "./types.ts";
+import { earliestStartSlot, formatDate, formatDuration, formatSlot } from "./time.ts";
 import { Dialog } from "./Dialog";
 import { useDemoClock } from "./DemoClock";
 
@@ -26,6 +26,8 @@ export function ItemForm({ date, item: initialItem, onSave, onPreviewOptions, on
   const [end, setEnd] = useState(Math.min(SLOTS_PER_DAY, initialStart + (initialItem?.durationSlots ?? 2)));
   const [alternativeStart, setAlternativeStart] = useState<number | "">("");
   const [duration, setDuration] = useState(initialItem?.durationSlots ?? 2);
+  const [earliestDate, setEarliestDate] = useState(initialItem?.kind === "flexible" ? initialItem.earliestDate ?? date : date);
+  const [deadlineDate, setDeadlineDate] = useState(initialItem?.kind === "flexible" ? initialItem.deadlineDate ?? date : date);
   const [deadline, setDeadline] = useState(initialItem?.kind === "flexible"
     ? initialItem.deadlineSlot
     : initialItem
@@ -38,7 +40,7 @@ export function ItemForm({ date, item: initialItem, onSave, onPreviewOptions, on
     && alternativeStart !== ""
     && (alternativeStart === start || alternativeStart < cutoff || alternativeStart + fixedDuration > SLOTS_PER_DAY);
   const flexibleOptionsInvalid = !editing && kind === "flexible" && !!onPreviewOptions
-    && (duration > deadline || cutoff + duration > deadline);
+    && deadlineDate === date && (duration > deadline || cutoff + duration > deadline);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -62,7 +64,7 @@ export function ItemForm({ date, item: initialItem, onSave, onPreviewOptions, on
       return;
     }
     if (!editing && kind === "flexible" && onPreviewOptions) {
-      if (duration > deadline) {
+      if (deadlineDate === date && duration > deadline) {
         setError("Choose a deadline that leaves enough time for this task.");
         return;
       }
@@ -71,6 +73,7 @@ export function ItemForm({ date, item: initialItem, onSave, onPreviewOptions, on
       const failure = await onPreviewOptions({
         kind: "flexible", id: crypto.randomUUID(), title: title.trim(), note: note.trim(), date,
         durationSlots: duration, deadlineSlot: deadline, accent: "purple",
+        earliestDate, deadlineDate,
       });
       setSaving(false);
       if (failure) setError(failure); else onClose();
@@ -79,7 +82,7 @@ export function ItemForm({ date, item: initialItem, onSave, onPreviewOptions, on
     const base = { id: initialItem?.id ?? crypto.randomUUID(), title: title.trim(), note: note.trim(), date, isPinned: initialItem?.isPinned ?? false };
     const item: CalendarItem = kind === "fixed"
       ? { ...base, kind, startSlot: start, durationSlots: end - start, accent: initialItem?.accent ?? "blue" }
-      : { ...base, kind, startSlot: initialItem?.startSlot ?? null, durationSlots: duration, deadlineSlot: deadline, accent: initialItem?.accent ?? "purple" };
+      : { ...base, kind, startSlot: initialItem?.startSlot ?? null, durationSlots: duration, deadlineSlot: deadline, earliestDate, deadlineDate, accent: initialItem?.accent ?? "purple" };
     setSaving(true);
     setError(null);
     const failure = await onSave(item);
@@ -95,7 +98,12 @@ export function ItemForm({ date, item: initialItem, onSave, onPreviewOptions, on
           <option value="flexible">Flexible task</option><option value="fixed">Fixed event</option>
         </select></label>
         <p className="form-hint">{kind === "fixed" ? editing ? "Fixed events stay at the time you choose." : "Preview the schedule at this exact time, or add an optional alternative to compare two plans." : editing ? "We'll find a continuous gap before your deadline." : "The optimizer will propose up to two distinct placements before anything is saved."}</p>
-        {!editing && cutoff === SLOTS_PER_DAY && <p className="form-hint">No future slots remain in this day, so a new schedule option cannot be generated.</p>}
+        {!editing && cutoff === SLOTS_PER_DAY && <p className="form-hint">No future slots remain in this day. A flexible task can use a later day if its deadline allows it.</p>}
+        {kind === "flexible" && <div className="form-row">
+          <label>Available from<select value={earliestDate} onChange={(event) => setEarliestDate(event.target.value)}>{DEMO_DATES.map((value) => <option key={value} value={value} disabled={value > date}>{formatDate(value)}</option>)}</select></label>
+          <label>Deadline date<select value={deadlineDate} onChange={(event) => setDeadlineDate(event.target.value)}>{DEMO_DATES.map((value) => <option key={value} value={value} disabled={value < date}>{formatDate(value)}</option>)}</select></label>
+          <p className="form-hint full-row">Tasks may move between these dates, but each task stays in one continuous block within a single day. Moving to another day carries an extra penalty.</p>
+        </div>}
         <div className="form-row">
           {kind === "fixed" ? <>
             <label>Start time<select value={start} onChange={(event) => { const next = Number(event.target.value); setStart(next); if (end <= next) setEnd(next + 1); }}>
@@ -119,7 +127,7 @@ export function ItemForm({ date, item: initialItem, onSave, onPreviewOptions, on
         </div>
         <label>Note <span className="optional">(optional)</span><input maxLength={240} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Location, link, or a little context" /></label>
         {error && <p role="alert" className="form-error">{error}</p>}
-        <div className="dialog-actions"><button type="button" className="secondary-button" onClick={onClose} disabled={saving}>Cancel</button><button className="add-button" type="submit" disabled={saving || optionsInvalid || flexibleOptionsInvalid || (!editing && kind === "fixed" && start < cutoff)}>{saving ? "Finding options…" : editing ? "Reschedule task" : onPreviewOptions ? kind === "fixed" && alternativeStart === "" ? "Preview plan" : "Preview options" : kind === "fixed" ? "Add event" : "Schedule task"}</button></div>
+        <div className="dialog-actions"><button type="button" className="secondary-button" onClick={onClose} disabled={saving}>Cancel</button><button className="add-button" type="submit" disabled={saving || optionsInvalid || flexibleOptionsInvalid || (!editing && kind === "fixed" && start < cutoff)}>{saving ? "Finding options…" : editing ? "Preview update" : onPreviewOptions ? kind === "fixed" && alternativeStart === "" ? "Preview plan" : "Preview options" : kind === "fixed" ? "Add event" : "Schedule task"}</button></div>
       </form>
     </Dialog>
   );
