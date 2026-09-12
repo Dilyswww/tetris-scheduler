@@ -10,13 +10,11 @@ The schedule runs from 8:00 AM to 12:00 AM in unbreakable 30-minute slots.
 
 ## Implementation status
 
-Phase 1's frontend is implemented: task types, seed data, editable React state,
-first-fit placement, adding/deleting fixed and flexible items, pin/unpin, and
-full-day scrolling. See [the frontend handoff](../frontend/README.md) for run
-commands, verification, and limitations.
+Phase 1 is implemented: task types, full-day calendar, adding/deleting fixed and
+flexible items, pin/unpin, FastAPI, SQLite persistence, and the Python first-fit
+scheduler. See the [frontend](../frontend/README.md) and
+[backend](../backend/README.md) handoffs for details.
 
-The placement function currently lives in TypeScript as a frontend placeholder.
-FastAPI, SQLite persistence, and the Python scheduler remain to be implemented;
 Phase 2's delay handling, movement optimization, deferral, and Undo are pending.
 
 ## Scope for the eight-hour hackathon

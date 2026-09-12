@@ -4,38 +4,32 @@ See the [root README](../README.md#build-run-and-test-commands) for setup,
 development, build, test, and preview commands. That is the shared command
 reference for the project.
 
-The scheduler tests use Node 24's built-in TypeScript support; no additional
-test dependency is required.
-
 ## Implemented
 
 - Scrollable 8 AM–midnight calendar with 32 half-hour slots.
 - Fixed events with start/end times; flexible tasks with duration/deadline.
 - Add, delete, pin, and unpin through forms and item details.
 - A task list, live planned/free-time totals, and a real current-time marker.
+- FastAPI-backed add, delete, pin, and load operations.
 - Atomic additions: protected conflicts or placement failures show an error
-  without changing the existing day.
+  without changing the saved day.
 
-The app starts with a sample schedule on today's local date. Calendar changes
-are held in React state and reset on refresh. There is no backend or database
-connection yet.
+The app loads today's saved schedule from the backend. An empty day offers a
+button to load sample data. Calendar changes persist in SQLite across refreshes.
 
 ## Source map
 
 - `src/types.ts`: shared item types. Slot 0 starts at 8 AM; boundary 32 is
   midnight. Deadlines are inclusive of finishing at that boundary. Pinning is
   a property of either kind of item.
-- `src/seed.ts`: sample schedule, kept separate from the UI.
-- `src/scheduler.ts`: pure, temporary frontend placement function. It reserves
-  fixed/pinned items, preserves valid flexible placements, then assigns new
-  or displaced tasks to the first continuous gap before their deadlines.
+- `src/api.ts`: typed requests to the calendar API.
 - `src/App.tsx`: calendar/list views and state updates.
 - `src/ItemForm.tsx` and `src/Dialog.tsx`: creation and accessible modal controls.
 
-This greedy placeholder can reject a day that a more complete optimizer could
-solve by moving additional tasks. It does not split tasks, enforce a moving
-"now" cutoff, or provide delay handling, deferral, or Undo. The planned Python
-scheduler will become the authority when the FastAPI backend is connected.
+The Python scheduler is now authoritative. Its greedy placeholder can reject a
+day that a more complete optimizer could solve by moving additional tasks. It
+does not split tasks, enforce a moving "now" cutoff, or provide delay handling,
+deferral, or Undo.
 
 ## Manual demo check
 
@@ -50,5 +44,6 @@ scheduler will become the authority when the FastAPI backend is connected.
 6. Scroll to Gym at 6 PM, Read at 8 PM, and the midnight boundary. The timeline
    and time labels should scroll together. Also check a narrow phone viewport.
 
-Automated scheduling checks and the production build pass. Browser interaction
-and visual checks still need to be run when a browser is available.
+Backend scheduling/API checks, frontend type-checking, and the production build
+pass. Browser interaction and visual checks still need to be run when a browser
+is available.

@@ -26,6 +26,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, [tabindex]:focu
   outline-offset: 3px;
 }
 button:hover { filter: brightness(.97); }
+button:disabled { cursor: wait; opacity: .58; filter: none; }
 .sidebar { flex-shrink: 0; position: sticky; top: 0; height: 100dvh; }
 .nav-item .nav-count { float: right; width: auto; font-size: 12px; padding-top: 3px; }
 .feedback { padding: 14px 38px 0; color: #696276; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
@@ -63,6 +64,12 @@ button:hover { filter: brightness(.97); }
 .task-row-time { display: grid; text-align: right; font-size: 12px; gap: 5px; flex-shrink: 0; }
 .task-row-time small { color: #777381; }
 .empty-state { text-align: center; padding: 40px 20px; color: #777381; }
+.empty-state .add-button { margin: 8px 5px; }
+.empty-state .secondary-button { margin: 8px 5px; }
+.calendar-empty { position: absolute; z-index: 4; top: 100px; left: 50%; transform: translateX(-50%); width: min(310px, calc(100% - 30px)); padding: 25px; display: grid; justify-items: center; gap: 9px; text-align: center; border: 1px solid #ded9e7; border-radius: 12px; background: #fffefaeF; box-shadow: 0 10px 30px #30284614; }
+.calendar-empty strong { font: 19px Fraunces, serif; }
+.calendar-empty span { color: #777381; font-size: 11px; line-height: 1.5; }
+.calendar-empty button { margin-top: 6px; }
 .item-dialog { width: min(470px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 26px; border: 1px solid #e2e0da; border-radius: 16px; background: #fffefa; color: #292a38; box-shadow: 0 24px 80px #22222e33; }
 .item-dialog::backdrop { background: #22222e66; }
 .dialog-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
