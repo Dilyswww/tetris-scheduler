@@ -2,10 +2,11 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 import type { CalendarItem, OptimizerOperation } from "./types.ts";
 import { SLOTS_PER_DAY } from "./types.ts";
-import { formatDuration, formatSlot, localDateKey } from "./time.ts";
+import { earliestStartSlot, formatDuration, formatSlot } from "./time.ts";
 import { Dialog } from "./Dialog";
 import { ProposedChanges } from "./ProposedChanges";
 import { useOptimizerPreview } from "./useOptimizerPreview";
+import { useDemoClock } from "./DemoClock";
 
 export function RunningLateDialog({ items, preferredId, mode = "extend", onSubmit, onClose }: {
   items: CalendarItem[];
@@ -14,6 +15,7 @@ export function RunningLateDialog({ items, preferredId, mode = "extend", onSubmi
   onSubmit: (previewToken: string) => Promise<string | null>;
   onClose: () => void;
 }) {
+  const { now } = useDemoClock();
   const eligible = items.filter((item) => mode === "move"
     ? item.kind === "flexible" && !item.isPinned
     : item.startSlot !== null && item.startSlot + item.durationSlots < (item.kind === "flexible" ? item.deadlineSlot : SLOTS_PER_DAY));
@@ -31,8 +33,7 @@ export function RunningLateDialog({ items, preferredId, mode = "extend", onSubmi
     ? { type: "move", itemId, targetStartSlot: targetSlot }
     : { type: "extend", itemId, additionalSlots };
   const { preview, error: previewError, loading } = useOptimizerPreview(operation, items, retry);
-  const now = new Date();
-  const cutoff = selected && selected.date === localDateKey(now) ? Math.max(0, Math.ceil((now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60 - 480) / 30)) : 0;
+  const cutoff = selected ? earliestStartSlot(selected.date, now) : 0;
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

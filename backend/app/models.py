@@ -1,10 +1,13 @@
-from datetime import date as LocalDate
+from datetime import date as LocalDate, datetime
 from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, TypeAdapter, model_validator
+from pydantic import BaseModel, ConfigDict, Field, NaiveDatetime, StrictBool, TypeAdapter, model_validator
 from pydantic.alias_generators import to_camel
 
 SLOTS_PER_DAY = 32
+DEMO_START = LocalDate(2026, 9, 11)
+DEMO_END = LocalDate(2026, 9, 13)
+DEMO_TIME_ZONE = "America/New_York"
 StartSlot = Annotated[int, Field(strict=True, ge=0, lt=SLOTS_PER_DAY)]
 SlotCount = Annotated[int, Field(strict=True, ge=1, le=SLOTS_PER_DAY)]
 
@@ -14,6 +17,24 @@ class ApiModel(BaseModel):
         alias_generator=to_camel, populate_by_name=True,
         extra="forbid", str_strip_whitespace=True,
     )
+
+
+class DemoClockUpdate(ApiModel):
+    now: NaiveDatetime
+
+    @model_validator(mode="after")
+    def within_demo(self) -> Self:
+        if not DEMO_START <= self.now.date() <= DEMO_END:
+            raise ValueError("Choose a demo time from September 11–13, 2026.")
+        return self
+
+
+class DemoClock(ApiModel):
+    now: datetime
+    revision: int
+    time_zone: str = DEMO_TIME_ZONE
+    start_date: LocalDate = DEMO_START
+    end_date: LocalDate = DEMO_END
 
 
 class ItemBase(ApiModel):

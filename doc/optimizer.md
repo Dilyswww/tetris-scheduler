@@ -2,6 +2,9 @@
 
 The optimizer schedules one local calendar day, 8 AM–midnight, using 32
 indivisible 30-minute slots. Slot 0 means 8 AM; end boundary 32 means midnight.
+The frontend browses September 11–13, 2026, with independent schedules and Undo
+for each day. The [demo clock](demo.md) controls the simulated present; the solver
+still operates on one day per request and never automatically moves work between days.
 Intervals are half-open: `[startSlot, startSlot + durationSlots)`. Tasks cannot
 split or cross days. OR-Tools CP-SAT owns placement decisions.
 
@@ -73,8 +76,11 @@ default penalty weights differ between these operations.
 
 ## Time and protection rules
 
-Requests supply an IANA `timeZone`, such as `America/New_York`. The server
-uses its own clock, not a client-supplied “now.”
+Requests supply an IANA `timeZone`, such as `America/New_York`. Before demo mode
+starts, the server uses its real clock. The frontend starts a persistent paused
+demo clock and exposes controls to change it. In demo mode, all scheduling uses
+that shared New York wall time, including additions, edits, deletions, pinning,
+move/extend previews, and new-item proposals. See [demo.md](demo.md) for its API.
 
 - For today, `earliestStartSlot` is the current local time rounded up to the
   next slot boundary, clamped to 0–32. At 10:15 AM this is slot 5, or 10:30 AM.
@@ -101,7 +107,8 @@ These time rules apply to optimizer move/extend operations and adding items.
 New flexible tasks can only use unelapsed slots; if no future gap fits their
 duration and deadline, they are deferred. Existing started items stay locked
 during additions. New fixed or pinned items with elapsed starts are rejected.
-Ordinary edit/delete/pin placement remains the existing whole-day planning behavior. Undo
+In demo mode, edit/delete/pin preserves started entries and does not backfill
+elapsed time with other tasks. Outside demo mode it retains whole-day planning. Undo
 restores the exact prior snapshot, even if time has since advanced.
 
 ## HTTP interface
@@ -233,8 +240,8 @@ submit a replacement schedule, and commit does not solve again.
 1. Find the server-held proposal and validate its 120-second lifetime.
 2. Open a SQLite write transaction.
 3. Confirm the day's revision still matches the preview's revision.
-4. Recompute the time boundary in the original request's time zone. If it
-   changed, require a fresh preview.
+4. Confirm the demo clock revision is unchanged, then recompute the time boundary
+   using the effective clock. If either changed, require a fresh preview.
 5. Store the current day as its single Undo snapshot.
 6. Save the exact proposal, increment the day revision, and commit atomically.
 7. Consume the token.

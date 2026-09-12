@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, DragEvent } from "react";
 import type { CalendarItem, DaySchedule, ProposalItemDraft, ProposalSet, ScheduleChange } from "./types.ts";
-import { DAY_START_HOUR, SLOTS_PER_DAY } from "./types.ts";
-import { formatDuration, formatSlot, localDateKey } from "./time.ts";
+import { DAY_START_HOUR, DEMO_DATES, SLOTS_PER_DAY } from "./types.ts";
+import { earliestStartSlot, formatDuration, formatSlot, localDateKey } from "./time.ts";
 import { ApiError, calendarApi } from "./api.ts";
 import { ItemForm } from "./ItemForm";
 import { Dialog } from "./Dialog";
@@ -10,6 +10,7 @@ import { RunningLateDialog } from "./RunningLateDialog";
 import { useOptimizerPreview } from "./useOptimizerPreview";
 import { ProposedChanges } from "./ProposedChanges";
 import { ScheduleProposalPanel } from "./ScheduleProposalPanel";
+import { DemoClockControls, DemoClockProvider, useDemoClock } from "./DemoClock";
 
 const SLOT_HEIGHT = 48;
 const boundaries = Array.from({ length: SLOTS_PER_DAY + 1 }, (_, slot) => slot);
@@ -32,8 +33,20 @@ function CalendarCard({ item, onSelect, draggable = false, proposed = false, onD
 }
 
 export function App() {
-  const [day] = useState(() => new Date());
-  const date = localDateKey(day);
+  return <DemoClockProvider><DemoCalendar /></DemoClockProvider>;
+}
+
+function DemoCalendar() {
+  const { clock } = useDemoClock();
+  const [date, setDate] = useState(clock.now.slice(0, 10));
+  // Remounting isolates asynchronous responses and drafts from other days or
+  // clock revisions. Saved schedules and Undo remain in the backend.
+  return <DayWorkspace key={`${date}:${clock.revision}`} date={date} onSelectDate={setDate} />;
+}
+
+function DayWorkspace({ date, onSelectDate }: { date: string; onSelectDate: (date: string) => void }) {
+  const { now } = useDemoClock();
+  const day = new Date(`${date}T12:00:00`);
   const dateLabel = day.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
   const weekday = day.toLocaleDateString("en-US", { weekday: "long" });
   const [items, setItems] = useState<CalendarItem[]>([]);
@@ -54,7 +67,6 @@ export function App() {
   const [canUndo, setCanUndo] = useState(false);
   const [solverStatus, setSolverStatus] = useState<DaySchedule["solverStatus"]>(null);
   const [undoing, setUndoing] = useState(false);
-  const [now, setNow] = useState(() => new Date());
   const calendarRef = useRef<HTMLDivElement>(null);
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const selected = items.find((item) => item.id === selectedId);
@@ -62,11 +74,6 @@ export function App() {
   const selectedAlternative = proposalSet?.alternatives.find((option) => option.id === selectedAlternativeId) ?? proposalSet?.alternatives[0];
   const previewItems = dragProposal.preview?.schedule.items ?? selectedAlternative?.schedule.items ?? items;
   const activePreviewChanges = dragProposal.preview?.schedule.changes ?? selectedAlternative?.schedule.changes ?? [];
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(new Date()), 60_000);
-    return () => window.clearInterval(timer);
-  }, []);
 
   useEffect(() => {
     let active = true;
@@ -78,11 +85,14 @@ export function App() {
     return () => { active = false; };
   }, [date]);
 
-  const plannedSlots = items.filter((item) => item.startSlot !== null).reduce((sum, item) => sum + item.durationSlots, 0);
+  const cutoff = earliestStartSlot(date, now);
+  const futurePlannedSlots = items.reduce((sum, item) => item.startSlot === null ? sum : sum + Math.max(0, item.startSlot + item.durationSlots - Math.max(cutoff, item.startSlot)), 0);
   const focusSlots = items.filter((item) => item.kind === "flexible" && item.startSlot !== null).reduce((sum, item) => sum + item.durationSlots, 0);
-  const openSlots = SLOTS_PER_DAY - plannedSlots;
+  const openSlots = Math.max(0, SLOTS_PER_DAY - cutoff - futurePlannedSlots);
   const orderedItems = [...items].sort((a, b) => (a.startSlot ?? 32) - (b.startSlot ?? 32));
-  const nowSlot = (now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60 - DAY_START_HOUR * 60) / 30;
+  const today = localDateKey(now);
+  const isPast = date < today;
+  const nowSlot = date === today ? (now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60 - DAY_START_HOUR * 60) / 30 : isPast ? SLOTS_PER_DAY : 0;
   const showNow = localDateKey(now) === date && nowSlot >= 0 && nowSlot < SLOTS_PER_DAY;
   const nextItem = orderedItems.find((item) => item.startSlot !== null && item.startSlot >= nowSlot);
 
@@ -228,6 +238,11 @@ export function App() {
     calendarRef.current?.scrollTo({ top: 0 });
   }
 
+  function showToday() {
+    onSelectDate(today);
+    showCalendar();
+  }
+
   function dragStart(event: DragEvent<HTMLButtonElement>, item: CalendarItem) {
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/plain", item.id);
@@ -271,21 +286,28 @@ export function App() {
       <aside className="sidebar">
         <div className="brand"><span className="brand-mark">T</span><span>Tetris</span></div>
         <nav aria-label="Main navigation">
-          <button className={`nav-item ${view === "calendar" ? "active" : ""}`} aria-current={view === "calendar" ? "page" : undefined} onClick={showCalendar}><span aria-hidden="true">▦</span> Today</button>
+          <button className={`nav-item ${view === "calendar" ? "active" : ""}`} aria-current={view === "calendar" ? "page" : undefined} onClick={showCalendar}><span aria-hidden="true">▦</span> Calendar</button>
           <button className={`nav-item ${view === "tasks" ? "active" : ""}`} aria-current={view === "tasks" ? "page" : undefined} onClick={() => setView("tasks")}><span aria-hidden="true">☷</span> Tasks <span className="nav-count">{items.length}</span></button>
         </nav>
         <section className="sidebar-card">
-          <p className="eyebrow">TODAY'S RHYTHM</p><strong>{formatDuration(focusSlots)}</strong><span>of focused work planned</span>
+          <p className="eyebrow">THIS DAY'S RHYTHM</p><strong>{formatDuration(focusSlots)}</strong><span>of focused work planned</span>
           <div className="progress"><i style={{ width: `${focusSlots / SLOTS_PER_DAY * 100}%` }} /></div>
         </section>
         <div className="sidebar-footer"><div className="avatar" aria-hidden="true">T</div><div><strong>Your daily plan</strong><span>8:00 AM – midnight</span></div></div>
       </aside>
       <section className="workspace">
         <header className="topbar">
-          <div><p className="eyebrow">YOUR ADAPTIVE DAY</p><h1>{dateLabel}</h1></div>
-          <div className="top-actions"><button className="today-button" onClick={showCalendar}>Today</button><button className="late-top-button" onClick={() => setReportingLate(true)} disabled={!!proposalSet || !items.some((item) => item.startSlot !== null)}>Running late?</button><button ref={addButtonRef} className="add-button" onClick={() => setAdding(true)} disabled={!!proposalSet}>+ Add task</button></div>
+          <div><h1>{dateLabel}</h1></div>
+          <div className="top-actions"><button className="today-button" onClick={showToday}>Demo today</button><button className="late-top-button" onClick={() => setReportingLate(true)} disabled={loading || isPast || !!proposalSet || !items.some((item) => item.startSlot !== null)}>Running late?</button><button ref={addButtonRef} className="add-button" onClick={() => setAdding(true)} disabled={loading || isPast || !!proposalSet}>+ Add task</button></div>
         </header>
-        <div className="feedback" role="status" aria-live="polite">{feedback || "Drag a flexible task to preview a new time, or select an item for more actions."}</div>
+        <div className="demo-toolbar">
+          <nav className="day-tabs" aria-label="Demo calendar days">{DEMO_DATES.map((value) => <button key={value} className={value === date ? "active" : ""} aria-current={value === date ? "date" : undefined} onClick={() => onSelectDate(value)}>
+            <strong>{new Date(`${value}T12:00:00`).toLocaleDateString("en-US", { weekday: "short" })}</strong><span>Sep {Number(value.slice(-2))}{value === today ? " · Today" : ""}</span>
+          </button>)}</nav>
+          <DemoClockControls />
+        </div>
+        {isPast && <p className="day-context">This day is before the demo clock. Browse its schedule or move the demo clock back to add and reschedule tasks.</p>}
+        <div className="feedback" role="status" aria-live="polite">{feedback}</div>
         {drag && <section className="drag-proposal" aria-label="Drag preview" aria-live="polite">
           <strong>{dragProposal.loading ? `Checking ${formatSlot(drag.slot)}…` : dragProposal.error ? "This time is unavailable" : `Preview at ${formatSlot(drag.slot)} · drop to apply`}</strong>
           <span>{dragProposal.error || "Other flexible tasks can move earlier or later. Release outside the calendar or press Escape to cancel."}</span>
@@ -306,7 +328,7 @@ export function App() {
                   {boundaries.slice(0, -1).map((slot) => <div className="grid-line" key={slot} />)}
                   {showNow && <div className="now-line" style={{ top: nowSlot * SLOT_HEIGHT }}><i /><span>{now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</span></div>}
                   {previewItems.map((item) => <CalendarCard key={item.id} item={item} onSelect={() => { if (!drag) setSelectedId(item.id); }}
-                    draggable={!proposalSet && item.kind === "flexible" && !item.isPinned && item.startSlot !== null}
+                    draggable={!isPast && !proposalSet && item.kind === "flexible" && !item.isPinned && item.startSlot !== null}
                     proposed={activePreviewChanges.some((change) => change.itemId === item.id)}
                     onDragStart={(event) => dragStart(event, item)} onDragEnd={() => setDrag(null)} />)}
                   {drag && <div className={`drop-target ${dragProposal.error ? "invalid" : ""}`} style={{ top: drag.slot * SLOT_HEIGHT, height: (items.find((item) => item.id === drag.itemId)?.durationSlots ?? 1) * SLOT_HEIGHT }} />}
@@ -327,7 +349,7 @@ export function App() {
                 <button type="button" className="task-action-button task-delete-button" onClick={() => removeItem(item)}>Delete</button>
               </span>
             </div>)}
-            {!loading && !items.length && <div className="empty-state"><p>Your day is a blank canvas.</p><button className="add-button" onClick={() => setAdding(true)}>Add your first task</button><button className="secondary-button" onClick={loadSample}>Load sample day</button></div>}
+            {!loading && !items.length && <div className="empty-state"><p>Your day is a blank canvas.</p><button className="add-button" disabled={isPast} onClick={() => setAdding(true)}>Add your first task</button><button className="secondary-button" onClick={loadSample}>Load sample day</button></div>}
           </section>}
           <aside className="right-panel">
             <section className="notice-card"><div className="notice-icon" aria-hidden="true">✦</div><div><p className="eyebrow">{loading ? "SYNCING" : openSlots ? "ROOM TO BREATHE" : "FULL DAY"}</p><strong>{loading ? "Loading your day…" : `${formatDuration(openSlots)} available.`}</strong><span>{loading ? "Connecting to your saved calendar." : `${openSlots} open half-hour ${openSlots === 1 ? "slot" : "slots"}.`}</span></div></section>
@@ -335,8 +357,8 @@ export function App() {
               <div><i className="legend-dot fixed-dot" /> Fixed events <span>Can't move</span></div><div><i className="legend-dot flex-dot" /> Flexible tasks <span>Can adapt</span></div><div><i className="legend-dot pin-dot" /> Pinned <span>Keep in place</span></div>
             </section>
             <section className="up-next"><div className="section-title"><p className="eyebrow">UP NEXT</p><button onClick={() => setView("tasks")}>View all</button></div>
-              {nextItem ? <button className="next-card" onClick={() => setSelectedId(nextItem.id)}><span className="event-icon" aria-hidden="true">▣</span><span className="next-copy"><strong>{nextItem.title}</strong><span>{formatSlot(nextItem.startSlot!)} · {formatDuration(nextItem.durationSlots)}</span></span></button> : <p className="quiet-copy">No more items starting today.</p>}
-              <button className="late-button" onClick={() => setReportingLate(true)} disabled={!items.some((item) => item.startSlot !== null)}>Running late?</button>
+              {nextItem ? <button className="next-card" onClick={() => setSelectedId(nextItem.id)}><span className="event-icon" aria-hidden="true">▣</span><span className="next-copy"><strong>{nextItem.title}</strong><span>{formatSlot(nextItem.startSlot!)} · {formatDuration(nextItem.durationSlots)}</span></span></button> : <p className="quiet-copy">No more items starting on this day.</p>}
+              <button className="late-button" onClick={() => setReportingLate(true)} disabled={isPast || !items.some((item) => item.startSlot !== null)}>Running late?</button>
             </section>
           </aside>
         </div>
@@ -353,7 +375,7 @@ export function App() {
         </dl>
         <p className="form-hint">{selected.kind === "fixed" ? "Fixed events always stay at their chosen time." : selected.startSlot === null ? "No valid continuous gap remains before this task's deadline. Edit it or free calendar space so the optimizer can schedule it later." : selected.isPinned ? "Pinned tasks keep this exact time when other items are added." : "Flexible tasks can move when a fixed event needs this time."}</p>
         <div className="dialog-actions"><button className="delete-button" onClick={() => removeItem(selected)}>Delete item</button><button className="secondary-button" onClick={() => editItem(selected)}>Edit item</button><button className="secondary-button" aria-pressed={selected.isPinned} disabled={selected.startSlot === null} onClick={() => togglePin(selected)}>{selected.isPinned ? "Unpin item" : "Pin item"}</button>
-          {selected.kind === "flexible" && !selected.isPinned && <button className="secondary-button" onClick={() => { setMovingId(selected.id); setSelectedId(null); }}>Move task</button>}
+          {selected.kind === "flexible" && !selected.isPinned && <button className="secondary-button" disabled={isPast} onClick={() => { setMovingId(selected.id); setSelectedId(null); }}>Move task</button>}
         </div>
       </Dialog>}
     </main>{committing && <div className="saving-overlay" role="status">Saving your adjustment…</div>}</>
