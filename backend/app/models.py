@@ -62,15 +62,20 @@ class FlexibleTask(ItemBase):
     kind: Literal["flexible"]
     start_slot: StartSlot | None = None
     deadline_slot: SlotCount
+    earliest_date: LocalDate | None = None
+    deadline_date: LocalDate | None = None
 
     @model_validator(mode="after")
     def valid_placement(self) -> Self:
-        if self.start_slot is not None and self.start_slot + self.duration_slots > SLOTS_PER_DAY:
-            raise ValueError("The task must end by midnight.")
+        self.earliest_date = self.earliest_date or self.date
+        self.deadline_date = self.deadline_date or self.date
+        if not self.earliest_date <= self.date <= self.deadline_date:
+            raise ValueError("The assigned date must be between the earliest date and deadline date.")
         if self.is_pinned:
             if self.start_slot is None:
                 raise ValueError("Schedule a task before pinning it.")
-            if self.start_slot + self.duration_slots > self.deadline_slot:
+            latest_end = self.deadline_slot if self.date == self.deadline_date else SLOTS_PER_DAY
+            if self.start_slot + self.duration_slots > latest_end:
                 raise ValueError("A pinned task must finish by its deadline.")
         return self
 
@@ -93,6 +98,7 @@ class MoveOperation(ApiModel):
     type: Literal["move"]
     item_id: str = Field(min_length=1, max_length=80)
     target_start_slot: StartSlot
+    target_date: LocalDate | None = None
 
 
 class ExtendOperation(ApiModel):
@@ -101,13 +107,19 @@ class ExtendOperation(ApiModel):
     additional_slots: Annotated[int, Field(strict=True, ge=1, le=4)]
 
 
-Operation = Annotated[MoveOperation | ExtendOperation, Field(discriminator="type")]
+class EditOperation(ApiModel):
+    type: Literal["edit"]
+    item: CalendarItem
+
+
+Operation = Annotated[MoveOperation | ExtendOperation | EditOperation, Field(discriminator="type")]
 
 
 class PenaltyWeights(ApiModel):
     moved_task: Annotated[int, Field(strict=True, ge=0, le=1000)] = 1
     displacement_slot: Annotated[int, Field(strict=True, ge=0, le=1000)] = 2
     largest_displacement_slot: Annotated[int, Field(strict=True, ge=0, le=1000)] = 4
+    day_change: Annotated[int, Field(strict=True, ge=0, le=1000)] = 24
 
 
 class PreviewRequest(ApiModel):
@@ -137,12 +149,18 @@ class FlexibleTaskDraft(ApiModel):
     date: LocalDate
     duration_slots: SlotCount
     deadline_slot: SlotCount
+    earliest_date: LocalDate | None = None
+    deadline_date: LocalDate | None = None
     accent: Literal["purple", "orange", "blue", "green"] = "purple"
     note: str = Field(default="", max_length=240)
 
     @model_validator(mode="after")
     def can_fit_before_deadline(self) -> Self:
-        if self.duration_slots > self.deadline_slot:
+        self.earliest_date = self.earliest_date or self.date
+        self.deadline_date = self.deadline_date or self.date
+        if not self.earliest_date <= self.date <= self.deadline_date:
+            raise ValueError("The assigned date must be between the earliest date and deadline date.")
+        if self.earliest_date == self.deadline_date and self.duration_slots > self.deadline_slot:
             raise ValueError("The task duration must fit before its deadline.")
         return self
 
@@ -173,12 +191,19 @@ class AcceptProposalRequest(ApiModel):
 class ScheduleChange(ApiModel):
     item_id: str
     title: str
-    change_type: Literal["added", "extended", "moved", "deferred", "scheduled", "restored"]
+    change_type: Literal["added", "edited", "extended", "moved", "deferred", "scheduled", "restored"]
     from_start_slot: int | None = None
     to_start_slot: int | None = None
     from_duration_slots: int | None = None
     to_duration_slots: int | None = None
+    from_date: LocalDate | None = None
+    to_date: LocalDate | None = None
     reason: str
+
+
+class ScheduleDay(ApiModel):
+    date: LocalDate
+    items: list[CalendarItem]
 
 
 class DaySchedule(ApiModel):
@@ -187,6 +212,7 @@ class DaySchedule(ApiModel):
     changes: list[ScheduleChange] = Field(default_factory=list)
     can_undo: bool = False
     solver_status: Literal["optimal", "feasible"] | None = None
+    days: list[ScheduleDay] = Field(default_factory=list)
 
 
 class SchedulePreview(ApiModel):
@@ -202,12 +228,14 @@ class ProposalMetrics(ApiModel):
     moved_task_count: int
     total_shift_slots: int
     deferred_task_count: int
+    day_change_count: int = 0
 
 
 class ProposalAlternative(ApiModel):
     id: str
     label: str
     start_slot: StartSlot
+    date: LocalDate
     schedule: DaySchedule
     metrics: ProposalMetrics
 

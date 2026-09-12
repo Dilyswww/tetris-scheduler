@@ -32,7 +32,8 @@ Routes:
 - `PATCH /api/items/{id}`
 - `DELETE /api/items/{id}`
 - `POST /api/day/{date}/seed`
-- `POST /api/optimizer/preview` — read-only move/extend proposal
+- `POST /api/debug/reset?day=2026-09-11` — replace all three demo days with the deterministic debug fixture
+- `POST /api/optimizer/preview` — read-only move/extend/edit proposal
 - `POST /api/optimizer/commit` — save an unchanged, unexpired proposal token
 - `POST /api/optimizer/proposals` — generate real CP-SAT alternatives for a new fixed event or flexible task
 - `POST /api/optimizer/proposals/{id}/accept` — save one exact alternative and invalidate the set
@@ -41,7 +42,18 @@ Routes:
 
 The [three-day demo guide](../doc/demo.md) documents clock payloads and behavior.
 The clock is stored in SQLite. All previews record its revision and reject commit
-after it changes; saved schedules and independent per-day Undo remain intact.
+after it changes; saved schedules and the shared three-day Undo remain intact.
+Scheduling reads all three dates, checks each revision, and saves the complete
+window in one transaction. Flexible tasks use `earliestDate`/`deadlineDate`
+bounds and pay a configurable `dayChange` penalty (default 24 per day crossed).
+Each task remains one continuous interval within a day. Window responses include
+`days`; top-level `items` still represents the requested/source day.
+
+The debug reset is intentionally destructive and intended for this hackathon
+demo. It atomically replaces items on September 11–13, clears the shared Undo
+snapshot, increments all three revisions so pending previews become stale, and
+leaves the demo clock unchanged. Calling it again produces the same item IDs and
+placements.
 
 Use one API worker for the hackathon: preview tokens and proposal sets live in process memory for
 up to 120 seconds. Calendars, revision counters, and Undo snapshots live in SQLite.

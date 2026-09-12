@@ -1,8 +1,8 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 import type { CalendarItem, OptimizerOperation } from "./types.ts";
-import { SLOTS_PER_DAY } from "./types.ts";
-import { earliestStartSlot, formatDuration, formatSlot } from "./time.ts";
+import { DEMO_DATES, SLOTS_PER_DAY } from "./types.ts";
+import { earliestStartSlot, formatDate, formatDuration, formatSlot } from "./time.ts";
 import { Dialog } from "./Dialog";
 import { ProposedChanges } from "./ProposedChanges";
 import { useOptimizerPreview } from "./useOptimizerPreview";
@@ -18,22 +18,23 @@ export function RunningLateDialog({ items, preferredId, mode = "extend", onSubmi
   const { now } = useDemoClock();
   const eligible = items.filter((item) => mode === "move"
     ? item.kind === "flexible" && !item.isPinned
-    : item.startSlot !== null && item.startSlot + item.durationSlots < (item.kind === "flexible" ? item.deadlineSlot : SLOTS_PER_DAY));
+    : item.startSlot !== null && item.startSlot + item.durationSlots < endBoundary(item));
   const [itemId, setItemId] = useState(eligible.find((item) => item.id === preferredId)?.id || eligible[0]?.id || "");
   const [amount, setAmount] = useState(1);
   const [targetSlot, setTargetSlot] = useState(eligible.find((item) => item.id === preferredId)?.startSlot ?? 0);
+  const [targetDate, setTargetDate] = useState(eligible.find((item) => item.id === preferredId)?.date ?? eligible[0]?.date ?? DEMO_DATES[0]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [retry, setRetry] = useState(0);
   const selected = eligible.find((item) => item.id === itemId);
-  const limit = selected ? (selected.kind === "flexible" ? selected.deadlineSlot : SLOTS_PER_DAY) - selected.startSlot! - selected.durationSlots : 0;
+  const limit = selected ? endBoundary(selected) - selected.startSlot! - selected.durationSlots : 0;
   const options = [1, 2, 3, 4].filter((slots) => slots <= limit);
   const additionalSlots = options.includes(amount) ? amount : options[0] || 1;
   const operation: OptimizerOperation | null = !selected ? null : mode === "move"
-    ? { type: "move", itemId, targetStartSlot: targetSlot }
+    ? { type: "move", itemId, targetStartSlot: targetSlot, targetDate }
     : { type: "extend", itemId, additionalSlots };
   const { preview, error: previewError, loading } = useOptimizerPreview(operation, items, retry);
-  const cutoff = selected ? earliestStartSlot(selected.date, now) : 0;
+  const cutoff = selected ? earliestStartSlot(mode === "move" ? targetDate : selected.date, now) : 0;
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -48,9 +49,13 @@ export function RunningLateDialog({ items, preferredId, mode = "extend", onSubmi
   return <Dialog title={mode === "move" ? "Move a task" : "Running late?"} onClose={() => { if (!saving) onClose(); }}>
     <form className="item-form" onSubmit={submit}>
       {eligible.length ? <>
-        <label>Which item?<select autoFocus disabled={saving} value={itemId} onChange={(event) => { setItemId(event.target.value); setAmount(1); setError(null); }}>
+        <label>Which item?<select autoFocus disabled={saving} value={itemId} onChange={(event) => {
+          const item = eligible.find((entry) => entry.id === event.target.value)!;
+          setItemId(item.id); setTargetDate(item.date); setTargetSlot(item.startSlot ?? 0); setAmount(1); setError(null);
+        }}>
           {eligible.map((item) => <option key={item.id} value={item.id}>{item.title} — {item.startSlot === null ? "Unscheduled" : formatSlot(item.startSlot)}</option>)}
         </select></label>
+        {mode === "move" && <label>Move to day<select disabled={saving} value={targetDate} onChange={(event) => { setTargetDate(event.target.value); setError(null); }}>{DEMO_DATES.map((value) => <option key={value} value={value} disabled={selected?.kind === "flexible" && (value < (selected.earliestDate ?? selected.date) || value > (selected.deadlineDate ?? selected.date))}>{formatDate(value)}</option>)}</select></label>}
         {mode === "extend" ? <label>Extra time<select disabled={saving} value={additionalSlots} onChange={(event) => { setAmount(Number(event.target.value)); setError(null); }}>
           {options.map((slots) => <option key={slots} value={slots}>{formatDuration(slots)}</option>)}
         </select></label> : <label>Move to<select disabled={saving} value={targetSlot} onChange={(event) => { setTargetSlot(Number(event.target.value)); setError(null); }}>
@@ -64,4 +69,8 @@ export function RunningLateDialog({ items, preferredId, mode = "extend", onSubmi
       <div className="dialog-actions"><button type="button" className="secondary-button" onClick={onClose} disabled={saving}>Cancel</button><button className="late-confirm-button" type="submit" disabled={!preview || saving}>{saving ? "Saving…" : "Apply changes"}</button></div>
     </form>
   </Dialog>;
+}
+
+function endBoundary(item: CalendarItem) {
+  return item.kind === "flexible" && item.date === (item.deadlineDate ?? item.date) ? item.deadlineSlot : SLOTS_PER_DAY;
 }

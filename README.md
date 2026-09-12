@@ -5,8 +5,9 @@ and pinned tasks stay in place; flexible tasks fit around them before their
 deadlines. Each day runs from 8 AM to midnight in 30-minute slots.
 
 The presentation demo covers **September 11–13, 2026**, with a paused, manually
-adjustable clock shared by the frontend and scheduler. Each day has its own plan
-and Undo history; tasks are optimized within that day.
+adjustable clock shared by the frontend and scheduler. The optimizer considers
+all three days, keeps each task within one day, and penalizes date changes.
+One shared Undo restores the entire window.
 
 ## Quick start
 
@@ -80,27 +81,36 @@ Keep this command reference updated when adding or changing scripts in
 
 Phase 1 is implemented across the frontend and backend:
 
-- React + TypeScript + Vite calendar and task-list views.
+- React + TypeScript + Vite three-day calendar and task-list views.
 - Create, edit, reschedule, and delete fixed events and flexible tasks.
 - Pin/unpin items from their detail dialog and preserve pinned placements.
 - FastAPI and SQLite persistence across browser refreshes.
 - OR-Tools CP-SAT placement that protects fixed/pinned items, respects
   deadlines, and minimizes disruption.
-- Drag flexible tasks to preview a chosen time, or use the accessible Move task dialog.
+- Drag flexible tasks between times or dates while previewing all three days, or
+  use the accessible Move task dialog. Drops and edits open a Current/Proposed
+  comparison before Apply.
 - Preview running-late adjustments from 30 minutes to two hours before Apply,
-  with structured explanations, task deferral, and persistent one-level Undo.
-- Compare multiple real CP-SAT schedules for a new fixed event or flexible task
-  and apply only the option the user chooses.
+  with structured explanations and task deferral. Persistent one-level Undo
+  also covers item edits, deletion, and pin changes.
+- Compare the current calendar with multiple real CP-SAT schedules for a new
+  fixed event or flexible task, and apply only the option the user chooses.
 - Full-day scrolling and live schedule totals.
 
 An empty day can be filled with sample data from the interface. The backend
 creates its SQLite database at `backend/data/tetris.sqlite3` on first start.
 No API keys or external services are required.
 
-Use the **Sep 11 / Sep 12 / Sep 13** tabs to browse days. Under **Demo time**, choose
-the current date and time and click **Set demo time**. All demo times are New York
-wall time; the clock does not advance automatically. **Demo today** returns to
-the simulated current day. The clock, calendars, and Undo survive refreshes.
+The calendar shows **Sep 11 / Sep 12 / Sep 13** side by side on one shared time
+axis. A compact left control rail contains Calendar/Tasks navigation, Add and
+Running late actions, presentation-clock controls, reset, status,
+and Undo details. Drag its right edge to resize it; the browser remembers the
+chosen width. It scrolls independently so the calendar can use the full
+viewport height. Under **Demo
+time**, choose the current date and time and click **Set demo time**. All demo times are New York
+wall time; the clock does not advance automatically. Click a calendar column
+heading to choose the date for Add and Running late. The clock, calendars, and
+Undo survive refreshes.
 
 For a quick presentation: load the sample on an empty day, set the demo clock to
 that day's 8:00 AM, drag a task and Undo, then set the clock to 10:15 AM and show
@@ -108,8 +118,16 @@ that new tasks cannot start before 10:30 AM. Browse the next day to show its ful
 availability. Adjusting the clock cancels unsaved previews but preserves saved
 schedules. See [the demo guide](doc/demo.md) for the full walkthrough.
 
-Automatic rescheduling between days, Google Calendar, and sponsor integrations
-remain later work.
+For development and presentations, **↻ Debug reset** replaces all three days
+with a deterministic stress-test schedule after confirmation. It clears Undo but
+preserves the presentation clock. Set the clock to Sep 11 at 8:00 AM, then extend
+**Client review** by 60 minutes for the shortest cross-day optimizer demo.
+
+To allow a task to move across days, set its **Deadline date** to a later date.
+**Available from** controls the earliest eligible date. Existing tasks retain
+their same-day deadlines until edited. Changes show their source and destination
+dates; **Move task** also lets you choose a target day explicitly.
+Google Calendar and sponsor integrations remain later work.
 
 ## Project layout
 
@@ -125,6 +143,6 @@ See the [execution plan](doc/execution-plan.md) for the eight-hour build scope
 and the [frontend notes](frontend/README.md) for the source map, scheduler
 limitations, and manual demo checks. Backend details are in
 [backend/README.md](backend/README.md).
-The [optimizer notes](doc/optimizer.md) define the move/extend and multi-option
+The [optimizer notes](doc/optimizer.md) define the move/extend/edit and multi-option
 APIs, objective, time rules, preview/commit contract, and Undo flow. Run a single backend worker:
 preview tokens are temporary and held in that process; calendars and Undo persist.

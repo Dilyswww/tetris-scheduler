@@ -31,6 +31,7 @@ export const calendarApi = {
   setPin: (id: string, isPinned: boolean) => request(`/api/items/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ isPinned }) }),
   deleteItem: (id: string) => request(`/api/items/${encodeURIComponent(id)}`, { method: "DELETE" }),
   seedDay: (date: string) => request(`/api/day/${date}/seed`, { method: "POST" }),
+  resetDebugSchedule: (date: string) => request(`/api/debug/reset?day=${encodeURIComponent(date)}`, { method: "POST" }),
   preview: (operation: OptimizerOperation, signal?: AbortSignal, penalties?: Partial<PenaltyWeights>) => request<SchedulePreview>("/api/optimizer/preview", {
     method: "POST", signal, body: JSON.stringify({ operation, timeZone: DEMO_TIME_ZONE, penalties }),
   }),

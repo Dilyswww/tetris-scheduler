@@ -92,6 +92,10 @@ def create_app(db_path: Path | None = None) -> FastAPI:
     def seed_day(day: date):
         return repository.seed(day)
 
+    @app.post("/api/debug/reset", response_model=DaySchedule)
+    def reset_debug_schedule(day: date = Query(default=date(2026, 9, 11))):
+        return repository.reset_debug_schedule(day)
+
     @app.post("/api/optimizer/preview", response_model=SchedulePreview)
     def preview(update: PreviewRequest):
         return repository.preview(update)
