@@ -47,6 +47,10 @@ def create_app(db_path: Path | None = None) -> FastAPI:
     def pin_item(item_id: str, update: PinUpdate):
         return repository.pin(item_id, update.is_pinned)
 
+    @app.put("/api/items/{item_id}", response_model=DaySchedule)
+    def update_item(item_id: str, item: CalendarItem):
+        return repository.update(item_id, item)
+
     @app.delete("/api/items/{item_id}", response_model=DaySchedule)
     def delete_item(item_id: str):
         return repository.delete(item_id)

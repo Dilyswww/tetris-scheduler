@@ -8,9 +8,9 @@ reference for the project.
 
 - Scrollable 8 AM–midnight calendar with 32 half-hour slots.
 - Fixed events with start/end times; flexible tasks with duration/deadline.
-- Add, delete, pin, and unpin through forms and item details.
+- Add, edit/reschedule, and delete through forms, the task list, and item details.
 - A task list, live planned/free-time totals, and a real current-time marker.
-- FastAPI-backed add, delete, pin, and load operations.
+- FastAPI-backed add, edit, delete, and load operations.
 - Atomic additions: protected conflicts or placement failures show an error
   without changing the saved day.
 
@@ -35,12 +35,14 @@ deferral, or Undo.
 
 1. Add a flexible task with a 30-minute duration and a 5 PM deadline. It should
    fill the earliest available half-hour while existing placements stay put.
-2. Open the new task, pin it, and close the dialog. Its card should say Pinned.
-3. Try adding a fixed event at that task's time. The form should report the
-   protected conflict and leave the day unchanged.
-4. Cancel, unpin the task, and retry. The flexible task should move to a free
-   gap; the status message should identify the move.
-5. Open either item and delete it. Check the Tasks view and free-time total.
+2. Use Edit from the Tasks view, change its duration or deadline, and select
+   Reschedule task. The same item should update without creating a duplicate.
+3. Add a fixed event at an unpinned flexible task's time. The flexible task
+   should move to a free gap and the status message should identify the move.
+4. Try adding a fixed event over the seeded pinned Gym task. The form should
+   report the protected conflict and leave the day unchanged.
+5. Delete an item directly from Tasks, then delete one from its detail dialog.
+   Check the free-time total after each deletion.
 6. Scroll to Gym at 6 PM, Read at 8 PM, and the midnight boundary. The timeline
    and time labels should scroll together. Also check a narrow phone viewport.
 

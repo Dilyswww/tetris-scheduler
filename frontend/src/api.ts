@@ -25,6 +25,7 @@ async function request(path: string, init?: RequestInit): Promise<DaySchedule> {
 export const calendarApi = {
   getDay: (date: string) => request(`/api/day/${date}`),
   addItem: (item: CalendarItem) => request("/api/items", { method: "POST", body: JSON.stringify(item) }),
+  updateItem: (item: CalendarItem) => request(`/api/items/${encodeURIComponent(item.id)}`, { method: "PUT", body: JSON.stringify(item) }),
   setPin: (id: string, isPinned: boolean) => request(`/api/items/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ isPinned }) }),
   deleteItem: (id: string) => request(`/api/items/${encodeURIComponent(id)}`, { method: "DELETE" }),
   seedDay: (date: string) => request(`/api/day/${date}/seed`, { method: "POST" }),
