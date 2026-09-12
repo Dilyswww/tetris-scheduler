@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { FormEvent } from "react";
 import type { CalendarItem, ProposalItemDraft } from "./types.ts";
 import { SLOTS_PER_DAY } from "./types.ts";
 import { earliestStartSlot, formatDuration, formatSlot } from "./time.ts";
 import { Dialog } from "./Dialog";
+import { useDemoClock } from "./DemoClock";
 
 const boundaries = Array.from({ length: SLOTS_PER_DAY + 1 }, (_, slot) => slot);
 
@@ -15,7 +16,7 @@ export function ItemForm({ date, item: initialItem, onSave, onPreviewOptions, on
   onClose: () => void;
 }) {
   const editing = initialItem !== undefined;
-  const [now, setNow] = useState(() => new Date());
+  const { now } = useDemoClock();
   const cutoff = editing ? 0 : earliestStartSlot(date, now);
   const initialStart = initialItem?.startSlot ?? Math.min(31, Math.max(12, cutoff));
   const [kind, setKind] = useState<CalendarItem["kind"]>(initialItem?.kind ?? "flexible");
@@ -39,22 +40,15 @@ export function ItemForm({ date, item: initialItem, onSave, onPreviewOptions, on
   const flexibleOptionsInvalid = !editing && kind === "flexible" && !!onPreviewOptions
     && (duration > deadline || cutoff + duration > deadline);
 
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(new Date()), 30_000);
-    return () => window.clearInterval(timer);
-  }, []);
-
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!editing && kind === "fixed" && start < earliestStartSlot(date)) {
+    if (!editing && kind === "fixed" && start < earliestStartSlot(date, now)) {
       setError("Choose a start time that has not elapsed.");
-      setNow(new Date());
       return;
     }
     if (!editing && kind === "fixed" && onPreviewOptions) {
-      if (alternativeStart !== "" && (alternativeStart === start || alternativeStart < earliestStartSlot(date) || alternativeStart + fixedDuration > SLOTS_PER_DAY)) {
+      if (alternativeStart !== "" && (alternativeStart === start || alternativeStart < earliestStartSlot(date, now) || alternativeStart + fixedDuration > SLOTS_PER_DAY)) {
         setError("Choose a different alternative time where the full event fits.");
-        setNow(new Date());
         return;
       }
       setSaving(true);

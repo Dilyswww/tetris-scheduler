@@ -4,6 +4,10 @@ Tetris helps people adapt their daily calendar when plans change. Fixed events
 and pinned tasks stay in place; flexible tasks fit around them before their
 deadlines. Each day runs from 8 AM to midnight in 30-minute slots.
 
+The presentation demo covers **September 11–13, 2026**, with a paused, manually
+adjustable clock shared by the frontend and scheduler. Each day has its own plan
+and Undo history; tasks are optimized within that day.
+
 ## Quick start
 
 With mise installed, run these commands from the **repository root**:
@@ -93,8 +97,19 @@ An empty day can be filled with sample data from the interface. The backend
 creates its SQLite database at `backend/data/tetris.sqlite3` on first start.
 No API keys or external services are required.
 
-Multi-day navigation and scheduling are still pending. Google Calendar and
-sponsor integrations are optional later work.
+Use the **Sep 11 / Sep 12 / Sep 13** tabs to browse days. Under **Demo time**, choose
+the current date and time and click **Set demo time**. All demo times are New York
+wall time; the clock does not advance automatically. **Demo today** returns to
+the simulated current day. The clock, calendars, and Undo survive refreshes.
+
+For a quick presentation: load the sample on an empty day, set the demo clock to
+that day's 8:00 AM, drag a task and Undo, then set the clock to 10:15 AM and show
+that new tasks cannot start before 10:30 AM. Browse the next day to show its full
+availability. Adjusting the clock cancels unsaved previews but preserves saved
+schedules. See [the demo guide](doc/demo.md) for the full walkthrough.
+
+Automatic rescheduling between days, Google Calendar, and sponsor integrations
+remain later work.
 
 ## Project layout
 

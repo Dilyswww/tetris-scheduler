@@ -11,6 +11,11 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .models import (
     CalendarItem,
+    DEMO_START,
+    DEMO_END,
+    DEMO_TIME_ZONE,
+    DemoClock,
+    DemoClockUpdate,
     DaySchedule,
     FlexibleTask,
     FlexibleTaskDraft,
@@ -49,8 +54,8 @@ class Repository:
     def __init__(self, path: Path):
         self.path = path
         # Ephemeral proposals are bounded and never write to SQLite.
-        self._previews: OrderedDict[str, tuple[float, int, str, SchedulePreview]] = OrderedDict()
-        self._proposal_sets: OrderedDict[str, tuple[float, int, str, int, ProposalSet]] = OrderedDict()
+        self._previews: OrderedDict[str, tuple[float, int, str, SchedulePreview, int]] = OrderedDict()
+        self._proposal_sets: OrderedDict[str, tuple[float, int, str, int, ProposalSet, int]] = OrderedDict()
         self._preview_lock = Lock()
 
     def initialize(self) -> None:
@@ -66,6 +71,7 @@ class Repository:
             """)
             db.execute("CREATE INDEX IF NOT EXISTS items_by_day ON items(day, position)")
             db.execute("CREATE TABLE IF NOT EXISTS day_revisions (day TEXT PRIMARY KEY, revision INTEGER NOT NULL)")
+            db.execute("CREATE TABLE IF NOT EXISTS demo_clock (id INTEGER PRIMARY KEY CHECK (id = 1), now TEXT NOT NULL, revision INTEGER NOT NULL)")
             db.execute("""
                 CREATE TABLE IF NOT EXISTS schedule_snapshots (
                     day TEXT PRIMARY KEY,
@@ -101,6 +107,29 @@ class Repository:
     def _revision(db: sqlite3.Connection, day: date) -> int:
         row = db.execute("SELECT revision FROM day_revisions WHERE day = ?", (day.isoformat(),)).fetchone()
         return row[0] if row else 0
+
+    @staticmethod
+    def _clock(db: sqlite3.Connection) -> DemoClock:
+        row = db.execute("SELECT now, revision FROM demo_clock WHERE id = 1").fetchone()
+        return DemoClock(now=datetime.fromisoformat(row[0]) if row else datetime(2026, 9, 11, 8), revision=row[1] if row else 0)
+
+    def get_clock(self) -> DemoClock:
+        with self.connection() as db:
+            return self._clock(db)
+
+    def start_demo(self) -> DemoClock:
+        with self.connection(write=True) as db:
+            db.execute("INSERT OR IGNORE INTO demo_clock(id, now, revision) VALUES (1, '2026-09-11T08:00:00', 1)")
+            return self._clock(db)
+
+    def set_clock(self, update: DemoClockUpdate) -> DemoClock:
+        with self.connection(write=True) as db:
+            current = self._clock(db)
+            if current.revision and current.now == update.now:
+                return current
+            db.execute("""INSERT INTO demo_clock(id, now, revision) VALUES (1, ?, 1)
+                ON CONFLICT(id) DO UPDATE SET now = excluded.now, revision = revision + 1""", (update.now.isoformat(),))
+            return self._clock(db)
 
     @classmethod
     def _save(
@@ -262,12 +291,22 @@ class Repository:
         with self.connection() as db:
             return DaySchedule(date=day, items=self._read(db, day), can_undo=self._has_snapshot(db, day))
 
+    def _schedule_existing(self, db: sqlite3.Connection, day: date, items: list[CalendarItem]) -> SolverResult:
+        clock = self._clock(db)
+        if not clock.revision:
+            return schedule_items(items)
+        # Explicit edits/deletions of historical data are allowed, but they must
+        # not backfill elapsed gaps with other flexible tasks.
+        cutoff = 32 if day < clock.now.date() else self._cutoff(day, DEMO_TIME_ZONE, db)
+        locked = frozenset(item.id for item in items if item.start_slot is not None and item.start_slot < cutoff)
+        return schedule_items(items, locked_ids=locked, earliest_start_slot=cutoff)
+
     def add(self, item: CalendarItem, time_zone: str = "UTC") -> DaySchedule:
         with self.connection(write=True) as db:
             existing = self._read(db, item.date)
             if any(entry.id == item.id for entry in existing):
                 raise ScheduleConflict("An item with this ID already exists. Reload your calendar.")
-            cutoff = self._cutoff(item.date, time_zone)
+            cutoff = self._cutoff(item.date, time_zone, db)
             if (item.kind == "fixed" or item.is_pinned) and item.start_slot is not None and item.start_slot < cutoff:
                 raise ScheduleConflict("New fixed or pinned items must start at a time that has not elapsed.")
             locked = frozenset(entry.id for entry in existing if entry.start_slot is not None and entry.start_slot < cutoff)
@@ -286,7 +325,7 @@ class Repository:
             if is_pinned and item.start_slot is None:
                 raise ScheduleConflict("A deferred task must be scheduled before it can be pinned.")
             item.is_pinned = is_pinned
-            result = schedule_items(items)
+            result = self._schedule_existing(db, day, items)
             self._clear_snapshot(db, day)
             return self._save(db, day, result.items, solver_status=result.status)
 
@@ -303,7 +342,7 @@ class Repository:
             if replacement.date != current.date:
                 raise ScheduleConflict("Move items between days by deleting and recreating them.")
             items = [replacement if entry.id == item_id else entry for entry in current_items]
-            result = schedule_items(items)
+            result = self._schedule_existing(db, day, items)
             self._clear_snapshot(db, day)
             return self._save(db, day, result.items, solver_status=result.status)
 
@@ -314,7 +353,7 @@ class Repository:
                 raise ItemNotFound("This item no longer exists. Reload your calendar.")
             day = date.fromisoformat(row[0])
             remaining = [item for item in self._read(db, day) if item.id != item_id]
-            result = schedule_items(remaining)
+            result = self._schedule_existing(db, day, remaining)
             self._clear_snapshot(db, day)
             return self._save(db, day, result.items, solver_status=result.status)
 
@@ -326,12 +365,21 @@ class Repository:
             self._clear_snapshot(db, day)
             return self._save(db, day, result.items, solver_status=result.status)
 
-    @staticmethod
-    def _cutoff(day: date, time_zone: str) -> int:
+    def _cutoff(self, day: date, time_zone: str, db: sqlite3.Connection | None = None) -> int:
+        if db is None:
+            with self.connection() as connection:
+                return self._cutoff(day, time_zone, connection)
         try:
-            now = utc_now().astimezone(ZoneInfo(time_zone))
+            requested_zone = ZoneInfo(time_zone)
         except (ZoneInfoNotFoundError, ValueError):
             raise ScheduleConflict("Choose a valid IANA time zone, such as America/New_York.")
+        clock = self._clock(db)
+        if clock.revision:
+            if not DEMO_START <= day <= DEMO_END:
+                raise ScheduleConflict("The demo calendar covers September 11–13, 2026.")
+            now = clock.now.replace(tzinfo=ZoneInfo(DEMO_TIME_ZONE))
+        else:
+            now = utc_now().astimezone(requested_zone)
         if day < now.date():
             raise ScheduleConflict("Past days cannot be rescheduled.")
         if day > now.date():
@@ -351,7 +399,8 @@ class Repository:
             before = self._read(db, day)
             revision = self._revision(db, day)
             can_undo = self._has_snapshot(db, day)
-        cutoff = self._cutoff(day, request.time_zone)
+            cutoff = self._cutoff(day, request.time_zone, db)
+            clock_revision = self._clock(db).revision
         proposed = [item.model_copy(deep=True) for item in before]
         target = self._find(proposed, operation.item_id)
         # There is no completion tracking yet: preserve elapsed work unless the
@@ -391,7 +440,7 @@ class Repository:
                 can_undo=can_undo, solver_status=result.status),
         )
         with self._preview_lock:
-            self._previews[preview.preview_token] = (time.monotonic() + 120, revision, request.time_zone, preview)
+            self._previews[preview.preview_token] = (time.monotonic() + 120, revision, request.time_zone, preview, clock_revision)
             while len(self._previews) > 256:
                 self._previews.popitem(last=False)
         return preview
@@ -401,14 +450,16 @@ class Repository:
             cached = self._previews.get(token)
         if cached is None or cached[0] <= time.monotonic():
             raise ScheduleConflict("This preview expired. Preview the adjustment again.")
-        expires, revision, time_zone, preview = cached
+        expires, revision, time_zone, preview, clock_revision = cached
         day = preview.schedule.date
         with self.connection(write=True) as db:
             if expires <= time.monotonic():
                 raise ScheduleConflict("This preview expired. Preview the adjustment again.")
             if self._revision(db, day) != revision:
                 raise ScheduleConflict("Your calendar changed. Reload it and preview the adjustment again.")
-            if self._cutoff(day, time_zone) != preview.earliest_start_slot:
+            if self._clock(db).revision != clock_revision:
+                raise ScheduleConflict("The demo clock changed. Preview the adjustment again.")
+            if self._cutoff(day, time_zone, db) != preview.earliest_start_slot:
                 raise ScheduleConflict("Time has advanced. Preview the adjustment again.")
             self._store_snapshot(db, day, self._read(db, day))
             saved = self._save(db, day, preview.schedule.items,
@@ -424,9 +475,10 @@ class Repository:
             before = self._read(db, draft.date)
             revision = self._revision(db, draft.date)
             can_undo = self._has_snapshot(db, draft.date)
+            cutoff = self._cutoff(draft.date, request.time_zone, db)
+            clock_revision = self._clock(db).revision
         if any(item.id == draft.id for item in before):
             raise ScheduleConflict("An item with this ID already exists. Reload your calendar.")
-        cutoff = self._cutoff(draft.date, request.time_zone)
         locked = frozenset(item.id for item in before if item.start_slot is not None and item.start_slot < cutoff)
         solved: list[tuple[SolverResult, CalendarItem]] = []
         if isinstance(draft, FixedEventDraft):
@@ -504,7 +556,7 @@ class Repository:
         )
         with self._preview_lock:
             self._proposal_sets[proposal_set.proposal_set_id] = (
-                time.monotonic() + 120, revision, request.time_zone, cutoff, proposal_set,
+                time.monotonic() + 120, revision, request.time_zone, cutoff, proposal_set, clock_revision,
             )
             while len(self._proposal_sets) > 256:
                 self._proposal_sets.popitem(last=False)
@@ -515,7 +567,7 @@ class Repository:
             cached = self._proposal_sets.get(proposal_set_id)
         if cached is None or cached[0] <= time.monotonic():
             raise ScheduleConflict("These schedule options expired. Generate new options.")
-        expires, revision, time_zone, cutoff, proposal_set = cached
+        expires, revision, time_zone, cutoff, proposal_set, clock_revision = cached
         alternative = next((item for item in proposal_set.alternatives if item.id == alternative_id), None)
         if alternative is None:
             raise ScheduleConflict("Choose an option from this proposal set.")
@@ -524,7 +576,9 @@ class Repository:
                 raise ScheduleConflict("These schedule options expired. Generate new options.")
             if self._revision(db, proposal_set.date) != revision:
                 raise ScheduleConflict("Your calendar changed. Reload it and generate new options.")
-            if self._cutoff(proposal_set.date, time_zone) != cutoff:
+            if self._clock(db).revision != clock_revision:
+                raise ScheduleConflict("The demo clock changed. Generate new options again.")
+            if self._cutoff(proposal_set.date, time_zone, db) != cutoff:
                 raise ScheduleConflict("Time has advanced. Generate new options again.")
             self._store_snapshot(db, proposal_set.date, self._read(db, proposal_set.date))
             saved = self._save(

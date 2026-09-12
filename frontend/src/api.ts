@@ -1,4 +1,5 @@
-import type { CalendarItem, DaySchedule, OptimizerOperation, PenaltyWeights, ProposalItemDraft, ProposalSet, SchedulePreview } from "./types.ts";
+import type { CalendarItem, DaySchedule, DemoClock, OptimizerOperation, PenaltyWeights, ProposalItemDraft, ProposalSet, SchedulePreview } from "./types.ts";
+import { DEMO_TIME_ZONE } from "./types.ts";
 
 export class ApiError extends Error {}
 
@@ -21,19 +22,22 @@ async function request<T = DaySchedule>(path: string, init?: RequestInit): Promi
 }
 
 export const calendarApi = {
+  startDemo: () => request<DemoClock>("/api/demo/start", { method: "POST" }),
+  getClock: () => request<DemoClock>("/api/demo/clock"),
+  setClock: (now: string) => request<DemoClock>("/api/demo/clock", { method: "PUT", body: JSON.stringify({ now }) }),
   getDay: (date: string) => request(`/api/day/${date}`),
-  addItem: (item: CalendarItem) => request(`/api/items?timeZone=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`, { method: "POST", body: JSON.stringify(item) }),
+  addItem: (item: CalendarItem) => request(`/api/items?timeZone=${encodeURIComponent(DEMO_TIME_ZONE)}`, { method: "POST", body: JSON.stringify(item) }),
   updateItem: (item: CalendarItem) => request(`/api/items/${encodeURIComponent(item.id)}`, { method: "PUT", body: JSON.stringify(item) }),
   setPin: (id: string, isPinned: boolean) => request(`/api/items/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ isPinned }) }),
   deleteItem: (id: string) => request(`/api/items/${encodeURIComponent(id)}`, { method: "DELETE" }),
   seedDay: (date: string) => request(`/api/day/${date}/seed`, { method: "POST" }),
   preview: (operation: OptimizerOperation, signal?: AbortSignal, penalties?: Partial<PenaltyWeights>) => request<SchedulePreview>("/api/optimizer/preview", {
-    method: "POST", signal, body: JSON.stringify({ operation, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, penalties }),
+    method: "POST", signal, body: JSON.stringify({ operation, timeZone: DEMO_TIME_ZONE, penalties }),
   }),
   commit: (previewToken: string) => request("/api/optimizer/commit", { method: "POST", body: JSON.stringify({ previewToken }) }),
   proposals: (item: ProposalItemDraft, candidateStartSlots?: number[]) => request<ProposalSet>("/api/optimizer/proposals", {
     method: "POST",
-    body: JSON.stringify({ item, candidateStartSlots, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+    body: JSON.stringify({ item, candidateStartSlots, timeZone: DEMO_TIME_ZONE }),
   }),
   acceptProposal: (proposalSetId: string, alternativeId: string) => request(`/api/optimizer/proposals/${encodeURIComponent(proposalSetId)}/accept`, {
     method: "POST", body: JSON.stringify({ alternativeId }),

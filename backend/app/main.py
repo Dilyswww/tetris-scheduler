@@ -11,6 +11,8 @@ from .models import (
     CalendarItem,
     CommitRequest,
     DaySchedule,
+    DemoClock,
+    DemoClockUpdate,
     PinUpdate,
     PreviewRequest,
     ProposalOptionsRequest,
@@ -53,6 +55,18 @@ def create_app(db_path: Path | None = None) -> FastAPI:
     @app.get("/api/health")
     def health():
         return {"status": "ok"}
+
+    @app.post("/api/demo/start", response_model=DemoClock)
+    def start_demo():
+        return repository.start_demo()
+
+    @app.get("/api/demo/clock", response_model=DemoClock)
+    def get_clock():
+        return repository.get_clock()
+
+    @app.put("/api/demo/clock", response_model=DemoClock)
+    def set_clock(update: DemoClockUpdate):
+        return repository.set_clock(update)
 
     @app.get("/api/day/{day}", response_model=DaySchedule)
     def get_day(day: date):

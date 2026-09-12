@@ -22,6 +22,9 @@ a different SQLite file.
 
 Routes:
 
+- `POST /api/demo/start` — initialize the shared paused presentation clock
+- `GET /api/demo/clock` — read the clock and revision
+- `PUT /api/demo/clock` — set a New York local timestamp within September 11–13
 - `GET /api/health`
 - `GET /api/day/{date}`
 - `POST /api/items?timeZone=America%2FNew_York` — add using unelapsed slots (default zone: UTC)
@@ -35,6 +38,10 @@ Routes:
 - `POST /api/optimizer/proposals/{id}/accept` — save one exact alternative and invalidate the set
 - `POST /api/reschedule` — deprecated immediate extension compatibility route
 - `POST /api/day/{date}/undo`
+
+The [three-day demo guide](../doc/demo.md) documents clock payloads and behavior.
+The clock is stored in SQLite. All previews record its revision and reject commit
+after it changes; saved schedules and independent per-day Undo remain intact.
 
 Use one API worker for the hackathon: preview tokens and proposal sets live in process memory for
 up to 120 seconds. Calendars, revision counters, and Undo snapshots live in SQLite.

@@ -9,7 +9,8 @@ reference for the project.
 - Scrollable 8 AM–midnight calendar with 32 half-hour slots.
 - Fixed events with start/end times; flexible tasks with duration/deadline.
 - Add, edit/reschedule, and delete through forms, the task list, and item details.
-- A task list, live planned/free-time totals, and a real current-time marker.
+- September 11–13 navigation, a task list, and per-day planned/free-time totals.
+- A paused presentation clock and matching current-time marker, shared with the backend.
 - FastAPI-backed add, edit, delete, pin, and load operations.
 - Live drag-to-time previews, plus a Move task dialog for keyboard/touch use.
 - Running-late extensions from 30 minutes to two hours, with preview before Apply.
@@ -19,8 +20,11 @@ reference for the project.
 - Atomic additions: protected conflicts or placement failures show an error
   without changing the saved day.
 
-The app loads today's saved schedule from the backend. An empty day offers a
+The app starts on the demo clock's current day. An empty day offers a
 button to load sample data. Calendar changes persist in SQLite across refreshes.
+Use the three date tabs to browse without changing the clock. The **Set demo
+time** control changes scheduling time in New York, and **Demo today** returns
+to that date. See [the demo guide](../doc/demo.md) for presentation steps.
 
 ## Source map
 

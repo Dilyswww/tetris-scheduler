@@ -1,6 +1,16 @@
 export const DAY_START_HOUR = 8;
 export const SLOT_MINUTES = 30;
 export const SLOTS_PER_DAY = 32;
+export const DEMO_DATES = ["2026-09-11", "2026-09-12", "2026-09-13"] as const;
+export const DEMO_TIME_ZONE = "America/New_York";
+
+export type DemoClock = {
+  now: string;
+  revision: number;
+  timeZone: string;
+  startDate: string;
+  endDate: string;
+};
 
 export type Accent = "purple" | "orange" | "blue" | "green";
 

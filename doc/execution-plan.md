@@ -2,7 +2,7 @@
 
 ## Goal
 
-Build a single-day calendar that keeps a realistic plan when a task runs late.
+Build a three-day demo calendar that keeps a realistic plan when a task runs late.
 The demo must show fixed events, flexible tasks, pinned items, an automatic
 reschedule with minimal disruption, an explanation of the changes, and Undo.
 
@@ -17,8 +17,10 @@ scheduler. See the [frontend](../frontend/README.md) and
 
 Phase 2's drag-to-time and delay handling, CP-SAT movement optimization, deferral,
 structured previews, validated commits, and one-level Undo are implemented. See
-[optimizer.md](optimizer.md) for the operation and API contracts. Multi-day scheduling
-and optional integrations remain pending.
+[optimizer.md](optimizer.md) for the operation and API contracts. Navigation for
+September 11–13 and a shared manually adjustable demo clock are implemented; see
+[demo.md](demo.md). Each day's optimization is independent. Automatic movement
+between days and optional integrations remain pending.
 
 ## Scope for the eight-hour hackathon
 
