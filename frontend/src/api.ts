@@ -1,10 +1,8 @@
-import type { CalendarItem } from "./types.ts";
-
-type DaySchedule = { date: string; items: CalendarItem[] };
+import type { CalendarItem, DaySchedule, OptimizerOperation, SchedulePreview } from "./types.ts";
 
 export class ApiError extends Error {}
 
-async function request(path: string, init?: RequestInit): Promise<DaySchedule> {
+async function request<T = DaySchedule>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
     response = await fetch(path, {
@@ -19,7 +17,7 @@ async function request(path: string, init?: RequestInit): Promise<DaySchedule> {
     const detail = body?.detail;
     throw new ApiError(typeof detail === "string" ? detail : "The calendar service could not complete that request.");
   }
-  return body as DaySchedule;
+  return body as T;
 }
 
 export const calendarApi = {
@@ -29,4 +27,9 @@ export const calendarApi = {
   setPin: (id: string, isPinned: boolean) => request(`/api/items/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ isPinned }) }),
   deleteItem: (id: string) => request(`/api/items/${encodeURIComponent(id)}`, { method: "DELETE" }),
   seedDay: (date: string) => request(`/api/day/${date}/seed`, { method: "POST" }),
+  preview: (operation: OptimizerOperation, signal?: AbortSignal) => request<SchedulePreview>("/api/optimizer/preview", {
+    method: "POST", signal, body: JSON.stringify({ operation, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+  }),
+  commit: (previewToken: string) => request("/api/optimizer/commit", { method: "POST", body: JSON.stringify({ previewToken }) }),
+  undo: (date: string) => request(`/api/day/${date}/undo`, { method: "POST" }),
 };

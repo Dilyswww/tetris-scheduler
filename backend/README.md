@@ -1,8 +1,10 @@
 # Tetris backend
 
 The backend is a FastAPI service backed by SQLite. It owns calendar validation,
-placement, and persistence. The frontend reaches it through Vite's `/api`
-development proxy.
+CP-SAT placement, rescheduling, Undo snapshots, and persistence. The frontend
+reaches it through Vite's `/api` development proxy. See the
+[optimizer design](../doc/optimizer.md) for variables, constraints, objective
+priorities, and transaction behavior.
 
 From the repository root:
 
@@ -27,3 +29,12 @@ Routes:
 - `PATCH /api/items/{id}`
 - `DELETE /api/items/{id}`
 - `POST /api/day/{date}/seed`
+- `POST /api/optimizer/preview` — read-only move/extend proposal
+- `POST /api/optimizer/commit` — save an unchanged, unexpired proposal token
+- `POST /api/reschedule` — deprecated immediate extension compatibility route
+- `POST /api/day/{date}/undo`
+
+Use one API worker for the hackathon: preview tokens live in process memory for
+up to 120 seconds. Calendars, revision counters, and Undo snapshots live in SQLite.
+The [optimizer interface](../doc/optimizer.md#http-interface) documents payloads,
+time-zone handling, conflict behavior, and stale-preview rejection.

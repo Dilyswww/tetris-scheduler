@@ -11,11 +11,14 @@ The schedule runs from 8:00 AM to 12:00 AM in unbreakable 30-minute slots.
 ## Implementation status
 
 Phase 1 is implemented: task types, full-day calendar, adding/deleting fixed and
-flexible items, pin/unpin, FastAPI, SQLite persistence, and the Python first-fit
+flexible items, pin/unpin, FastAPI, SQLite persistence, and the Python CP-SAT
 scheduler. See the [frontend](../frontend/README.md) and
 [backend](../backend/README.md) handoffs for details.
 
-Phase 2's delay handling, movement optimization, deferral, and Undo are pending.
+Phase 2's drag-to-time and delay handling, CP-SAT movement optimization, deferral,
+structured previews, validated commits, and one-level Undo are implemented. See
+[optimizer.md](optimizer.md) for the operation and API contracts. Multi-day scheduling
+and optional integrations remain pending.
 
 ## Scope for the eight-hour hackathon
 
@@ -66,10 +69,12 @@ Suggested routes:
 
 - `GET /api/day/{date}`: calendar items and the current schedule.
 - `POST /api/items`: create a fixed event or flexible task.
-- `PATCH /api/items/{id}`: pin/unpin or edit an item.
+- `PATCH /api/items/{id}`: pin/unpin an item.
+- `PUT /api/items/{id}`: edit an item.
 - `DELETE /api/items/{id}`: remove an item.
-- `POST /api/reschedule`: apply a delay or requested extension.
-- `POST /api/undo`: restore the previous schedule snapshot.
+- `POST /api/optimizer/preview`: preview a move or extension without saving.
+- `POST /api/optimizer/commit`: commit an unexpired preview if the day is unchanged.
+- `POST /api/day/{date}/undo`: restore the previous schedule snapshot.
 
 ### Scheduler
 
@@ -81,20 +86,15 @@ scheduling decisions.
 Scheduling rules:
 
 1. Divide the day into 32 slots, from 8:00 AM through midnight.
-2. Place fixed events and pinned items first; these positions never move.
-3. Keep a flexible task in its current slot whenever it remains valid.
-4. On an extension, first try to claim the immediately following free slots.
-5. If slots conflict, move only affected unpinned flexible tasks to the
-   nearest contiguous free slots before their deadlines.
-6. Prefer fewer moved tasks, then smaller time shifts, then earlier available
-   slots as a deterministic tie-breaker.
-7. Mark a task deferred when no valid contiguous slot remains before its
-   deadline.
-8. Save the pre-change schedule as the single Undo snapshot.
-
-This is deliberately a stability-first greedy algorithm, rather than a full
-optimization solver. It is predictable, explainable, and sufficient for the
-demo goal of minimizing disruption.
+2. Protect fixed, pinned, and already-started items during move/extend operations.
+3. Lock a dragged task at the chosen start, or extend a selected item's duration
+   while keeping its start unchanged.
+4. Require other placements to use unelapsed time and finish by their deadlines.
+5. Use CP-SAT to minimize deferred tasks, then moved tasks, then total absolute
+   displacement, with scheduling preferences as the final tie-breaker.
+6. Return proposed placements and explanations without changing the saved day.
+7. On commit, validate the revision and time boundary, save the pre-change
+   schedule as the single Undo snapshot, and persist the exact proposal atomically.
 
 ## Build sequence
 
