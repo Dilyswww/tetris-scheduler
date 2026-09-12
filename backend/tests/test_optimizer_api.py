@@ -67,6 +67,39 @@ def test_extension_keeps_start_and_moves_other_work_later(client):
     assert [c["changeType"] for c in proposal["schedule"]["changes"]] == ["extended", "moved"]
 
 
+def test_drag_30_90_60_minutes_reorders_within_original_three_hours(client):
+    for item_id, start, duration in [("short", 0, 1), ("long", 1, 3), ("medium", 4, 2)]:
+        assert client.post("/api/items", json={**flexible(item_id, start_slot=start), "durationSlots": duration, "deadlineSlot": 32}).status_code == 201
+    before = day(client)
+    response = preview(client, move("short", 5))
+    assert response.status_code == 200
+    proposal = response.json()
+    assert proposal["penalties"] == {"movedTask": 1, "displacementSlot": 2, "largestDisplacementSlot": 4}
+    assert {item["id"]: item["startSlot"] for item in proposal["schedule"]["items"]} == {"short": 5, "long": 0, "medium": 3}
+    assert proposal["schedule"]["solverStatus"] == "optimal"
+    assert day(client) == before
+    assert commit(client, proposal).json()["items"] == proposal["schedule"]["items"]
+    assert client.post(f"/api/day/{DAY}/undo").json()["items"] == before["items"]
+
+    # Users can deliberately choose stability over smaller individual moves.
+    override = client.post("/api/optimizer/preview", json={"operation": move("short", 5), "timeZone": "UTC", "penalties": {"movedTask": 100}})
+    assert override.status_code == 200
+    assert {item["id"]: item["startSlot"] for item in override.json()["schedule"]["items"]} == {"short": 5, "long": 1, "medium": 6}
+
+
+def test_extension_uses_its_own_defaults_and_merges_partial_overrides(client):
+    client.post("/api/items", json=flexible(start_slot=0))
+    assert preview(client, extend()).json()["penalties"] == {"movedTask": 8, "displacementSlot": 2, "largestDisplacementSlot": 0}
+    response = client.post("/api/optimizer/preview", json={"operation": extend(), "timeZone": "UTC", "penalties": {"displacementSlot": 5}})
+    assert response.json()["penalties"] == {"movedTask": 8, "displacementSlot": 5, "largestDisplacementSlot": 0}
+
+
+@pytest.mark.parametrize("weights", [{"movedTask": -1}, {"displacementSlot": 1001}, {"largestDisplacementSlot": 0.5}, {"movedTask": True}, {"unknown": 3}])
+def test_penalty_overrides_are_validated(client, weights):
+    response = client.post("/api/optimizer/preview", json={"operation": move(), "timeZone": "UTC", "penalties": weights})
+    assert response.status_code == 422
+
+
 @pytest.mark.parametrize("protected", [fixed(start_slot=2), {**flexible("pinned", start_slot=2), "isPinned": True}])
 def test_protected_drop_conflict_is_atomic(client, protected):
     client.post("/api/items", json=flexible(start_slot=0))

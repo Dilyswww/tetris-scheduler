@@ -83,9 +83,16 @@ class ExtendOperation(ApiModel):
 Operation = Annotated[MoveOperation | ExtendOperation, Field(discriminator="type")]
 
 
+class PenaltyWeights(ApiModel):
+    moved_task: Annotated[int, Field(strict=True, ge=0, le=1000)] = 1
+    displacement_slot: Annotated[int, Field(strict=True, ge=0, le=1000)] = 2
+    largest_displacement_slot: Annotated[int, Field(strict=True, ge=0, le=1000)] = 4
+
+
 class PreviewRequest(ApiModel):
     operation: Operation
     time_zone: str = Field(min_length=1, max_length=100)
+    penalties: PenaltyWeights | None = None
 
 
 class CommitRequest(ApiModel):
@@ -166,6 +173,7 @@ class SchedulePreview(ApiModel):
     expires_in_seconds: int
     operation: Operation
     earliest_start_slot: int
+    penalties: PenaltyWeights
     schedule: DaySchedule
 
 

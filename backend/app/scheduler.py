@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 from ortools.sat.python import cp_model
 
-from .models import CalendarItem, FixedEvent, FlexibleTask, SLOTS_PER_DAY
+from .models import CalendarItem, FixedEvent, FlexibleTask, PenaltyWeights, SLOTS_PER_DAY
 
 
 class ScheduleConflict(Exception):
@@ -34,14 +34,16 @@ def schedule_items(
     required_ids: frozenset[str] = frozenset(),
     forbidden_starts: Mapping[str, frozenset[int]] | None = None,
     earliest_start_slot: int = 0,
+    penalties: PenaltyWeights | None = None,
     time_limit_seconds: float = 0.5,
 ) -> SolverResult:
     """Optimize one day without mutating the input.
 
-    The integer objective is lexicographic by construction: defer count, moved
-    count, total displacement, then deterministic scheduling preferences.
+    Minimize deferrals, then a weighted movement score, then placement ties.
+    Movement count, total distance, and largest individual distance trade off.
     """
     items = [item.model_copy(deep=True) for item in source]
+    penalties = penalties if penalties is not None else PenaltyWeights()
     if len({item.id for item in items}) != len(items):
         raise ScheduleConflict("Each item must have a unique ID.")
     if len({item.date for item in items}) > 1:
@@ -60,14 +62,16 @@ def schedule_items(
     deferred_vars: dict[str, cp_model.IntVar] = {}
     occupancy: list[list[cp_model.IntVar]] = [[] for _ in range(SLOTS_PER_DAY)]
 
-    # Bounds encode exact priority tiers in one integer objective.
+    # Only deferrals and final ties are separate tiers. Movement penalties trade
+    # off within a single score; no movement term dominates by construction.
     max_tie_per_item = (SLOTS_PER_DAY + 1) * (count + 1) + count
     max_tie = count * max_tie_per_item
-    max_shift = count * (SLOTS_PER_DAY - 1)
-    shift_weight = max_tie + 1
-    move_weight = max_shift * shift_weight + max_tie + 1
-    defer_weight = count * move_weight + max_shift * shift_weight + max_tie + 1
+    max_shift = SLOTS_PER_DAY - 1
+    score_scale = max_tie + 1
+    max_movement_score = count * (penalties.moved_task + max_shift * penalties.displacement_slot) + max_shift * penalties.largest_displacement_slot
+    defer_weight = max_movement_score * score_scale + max_tie + 1
     objective_terms: list[cp_model.LinearExpr] = []
+    displacements: list[cp_model.LinearExpr] = []
 
     for index, item in enumerate(items):
         protected = isinstance(item, FixedEvent) or item.is_pinned or item.id in locked_ids
@@ -95,11 +99,15 @@ def schedule_items(
             tie_cost = start * (count + 1) + index
             if isinstance(item, FlexibleTask) and item.start_slot is not None and start != item.start_slot:
                 shift = abs(start - item.start_slot)
-                objective_terms.append(variable * (move_weight + shift * shift_weight + tie_cost))
+                movement_cost = penalties.moved_task + shift * penalties.displacement_slot
+                objective_terms.append(variable * (movement_cost * score_scale + tie_cost))
             else:
                 objective_terms.append(variable * tie_cost)
 
         placement_vars[item.id] = candidates
+        if isinstance(item, FlexibleTask) and item.start_slot is not None:
+            # Deferred and newly scheduled tasks contribute no displacement.
+            displacements.append(sum(abs(start - item.start_slot) * variable for start, variable in candidates))
         decisions = [variable for _, variable in candidates]
         if isinstance(item, FlexibleTask) and not protected and item.id not in required_ids:
             deferred = model.new_bool_var(f"defer_{index}")
@@ -114,7 +122,9 @@ def schedule_items(
         if variables:
             model.add(sum(variables) <= 1)
 
-    model.minimize(sum(objective_terms))
+    largest_displacement = model.new_int_var(0, max_shift, "largest_displacement")
+    model.add_max_equality(largest_displacement, displacements or [0])
+    model.minimize(sum(objective_terms) + largest_displacement * penalties.largest_displacement_slot * score_scale)
 
     # The saved schedule is a strong starting point for low-disruption search.
     for item in items:
